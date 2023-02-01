@@ -29,25 +29,21 @@ class AttGeoBase:
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
 
-        obj = self._query(
-            where=where_clause, outFields=fields, f="json", **kwargs)
+        obj = self._query(where=where_clause, outFields=fields, f="json", **kwargs)
 
-        date_fields = [
-            f.name for f in obj.fields if f.type == "esriFieldTypeDate"]
+        date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"]
 
         if date_fields:
             for f in obj.features:
                 for key, value in f.attributes.__dict__.items():
                     if key in date_fields and value:
-                        date = datetime.fromtimestamp(value / 1000)
-                        f.attributes.__dict__[key] = date
+                        f.attributes.__dict__[key] = datetime.fromtimestamp(value / 1000)
 
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
     def _get_oids(self, where_clause: str) -> List[int]:
 
-        obj = self._query(
-            where=where_clause, returnIdsOnly="true", f="json")
+        obj = self._query(where=where_clause, returnIdsOnly="true", f="json")
 
         return obj.objectIds
 
@@ -102,18 +98,20 @@ class AttGeo(Generic[T], AttGeoBase):
         super().__init__(layer_url, oid_field, shape_property)
 
         self._model = model
-        self._fields: Dict[str, Tuple[str, Any]] = {}
+        self._fields: Dict[str, str] = {}
         self._is_dynamic = model == SimpleNamespace
 
-        if not self._is_dynamic:
-            for type in reversed(model.__mro__):
-                if hasattr(type, "__annotations__"):
-                    for property_name, property_type in type.__annotations__.items():
-                        key = property_name.lower()
-                        self._fields[key] = (property_name, property_type)
+        if self._is_dynamic:
+            return
 
-                        if key == shape_property.lower():
-                            self._shape_property = property_name
+        for type in reversed(model.__mro__):
+            if hasattr(type, "__annotations__"):
+                for property_name in type.__annotations__:
+                    key = property_name.lower()
+                    self._fields[key] = property_name
+
+                    if key == shape_property.lower():
+                        self._shape_property = property_name
 
     def read(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
         """ Queries the feature layer and yields the results as typed objects.
@@ -130,8 +128,7 @@ class AttGeo(Generic[T], AttGeoBase):
             fields = "*"
         else:
             # Otherwise, request only what is used by the model.
-            fields = ",".join(
-                [f for f in self._fields if f != self._shape_property.lower()])
+            fields = ",".join([f for f in self._fields if f != self._shape_property.lower()])
 
             if not self._shape_property:
                 kwargs["returnGeometry"] = False
@@ -141,7 +138,7 @@ class AttGeo(Generic[T], AttGeoBase):
                 yield row  # type: ignore
             else:
                 item = self._model()
-                for property_name, property_type in self._fields.values():
+                for property_name in self._fields.values():
                     value = getattr(row, property_name)
                     setattr(item, property_name, value)
                 yield item
