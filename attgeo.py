@@ -145,3 +145,12 @@ class Mapper(Generic[T]):
 class Point:
     x: float
     y: float
+
+class Multipoint:
+    points: List[List[float]]
+
+class Polyline:
+    paths: List[List[List[float]]]
+
+class Polygon:
+    rings: List[List[List[float]]]
