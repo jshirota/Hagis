@@ -1,9 +1,8 @@
 from datetime import datetime
 from json import loads
-from requests import get
+from requests import post
 from types import SimpleNamespace
 from typing import Any, Dict, Generic, Iterator, List, Tuple, Type, TypeVar
-from urllib.parse import urlencode
 
 
 T = TypeVar("T")
@@ -76,9 +75,9 @@ class AttGeo(Generic[T]):
                     setattr(item, property_name, value)
                 yield item
 
-    def _get(self, **kwargs: Any) -> SimpleNamespace:
+    def _post(self, **kwargs: Any) -> SimpleNamespace:
 
-        response = get(f"{self._layer_url}/query?{urlencode(kwargs)}")
+        response = post(f"{self._layer_url}/query", kwargs)
 
         # Map it to a dynamic object.
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
@@ -91,7 +90,7 @@ class AttGeo(Generic[T]):
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
 
-        obj = self._get(where=where_clause, outFields=fields, f="json", **kwargs)
+        obj = self._post(where=where_clause, outFields=fields, f="json", **kwargs)
 
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"]
 
@@ -105,7 +104,7 @@ class AttGeo(Generic[T]):
 
     def _get_oids(self, where_clause: str) -> List[int]:
 
-        obj = self._get(where=where_clause, returnIdsOnly="true", f="json")
+        obj = self._post(where=where_clause, returnIdsOnly="true", f="json")
 
         return obj.objectIds
 
