@@ -1,5 +1,5 @@
 import unittest
-from attgeo import AttGeo
+from attgeo import Mapper
 
 
 class Test_ConfigHelper(unittest.TestCase):
@@ -17,7 +17,7 @@ class Test_ConfigHelper(unittest.TestCase):
             pop2000: int
             shape: Point
 
-        mapper = AttGeo(url, City)
+        mapper = Mapper(url, City)
 
         for city in mapper.read("areaname LIKE 'Arc%'", outSR=102100):
             self.assertTrue(city.areaname.startswith("Arc"))

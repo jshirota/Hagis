@@ -8,7 +8,7 @@ from typing import Any, Dict, Generic, Iterator, List, Tuple, Type, TypeVar
 T = TypeVar("T")
 
 
-class AttGeo(Generic[T]):
+class Mapper(Generic[T]):
     """ 
 
     Args:
