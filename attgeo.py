@@ -16,20 +16,22 @@ class Mapper(Generic[T]):
         AttGeoBase: Base class.
     """
 
-    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property: str = "shape") -> None:
+    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape") -> None:
         """ Creates a new instance of the AttGeo class.
 
         Args:
             layer_url (str): Layer url (e.g. .../FeatureServer/0).
             model (Type[T], optional): Model to map to.  Defaults to SimpleNamespace.
             oid_field (str, optional): Name of the Object ID field.  Defaults to "objectid".
-            shape_property (str, optional): Name of the shape property.  Defaults to "shape".
+            shape_property_name (str, optional): Name of the shape property.  Defaults to "shape".
         """
 
         self._layer_url = layer_url
         self._model = model
         self._oid_field = oid_field
-        self._shape_property = shape_property
+        self._shape_property_name = shape_property_name
+        self._shape_property_type = None
+        self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._fields: Dict[str, str] = {}
         self._is_dynamic = model == SimpleNamespace
 
@@ -38,12 +40,13 @@ class Mapper(Generic[T]):
 
         for type in reversed(model.__mro__):
             if hasattr(type, "__annotations__"):
-                for property_name in type.__annotations__:
+                for property_name, property_type in type.__annotations__.items():
                     key = property_name.lower()
                     self._fields[key] = property_name
 
-                    if key == shape_property.lower():
-                        self._shape_property = property_name
+                    if key == shape_property_name.lower():
+                        self._shape_property_name = property_name
+                        self._shape_property_type = property_type
 
     def read(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
         """ Queries the feature layer and yields the results as typed objects.
@@ -60,9 +63,9 @@ class Mapper(Generic[T]):
             fields = "*"
         else:
             # Otherwise, request only what is used by the model.
-            fields = ",".join([f for f in self._fields if f != self._shape_property.lower()])
+            fields = ",".join([f for f in self._fields if f != self._shape_property_name.lower()])
 
-            if not self._shape_property:
+            if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
         for row in self._read(where_clause, fields, **kwargs):
@@ -111,7 +114,12 @@ class Mapper(Generic[T]):
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
 
         if hasattr(row, "geometry"):
-            return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property: row.geometry})
+            if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
+                shape = row.geometry
+            else:
+                shape = self._shape_property_type()
+                shape.__dict__ = row.geometry.__dict__
+            return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
         else:
             return row.attributes
 
@@ -133,3 +141,7 @@ class Mapper(Generic[T]):
                 more_rows, _ = get_rows(more_where_clause)
                 for row in more_rows:
                     yield self._map(row)
+
+class Point:
+    x: float
+    y: float
