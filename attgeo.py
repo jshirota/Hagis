@@ -142,6 +142,7 @@ class Mapper(Generic[T]):
                 for row in more_rows:
                     yield self._map(row)
 
+
 class Point:
     x: float
     y: float
