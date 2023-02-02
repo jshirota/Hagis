@@ -154,4 +154,3 @@ class Polyline:
 
 class Polygon:
     rings: List[List[List[float]]]
-
