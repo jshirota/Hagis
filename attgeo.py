@@ -71,11 +71,16 @@ class Mapper(Generic[T]):
         for row in self._read(where_clause, fields, **kwargs):
             if self._is_dynamic:
                 yield row  # type: ignore
-            else:
-                item = self._model()
-                for property_name in self._fields.values():
-                    value = getattr(row, property_name)
-                    setattr(item, property_name, value)
+            else:                
+                dictionary = {property_name: getattr(row, property_name) for property_name in self._fields.values()}
+                if hasattr(self._model, "__dataclass_fields__"):
+                    # Support for dataclasses.
+                    item = self._model(*dictionary.values())
+                else:
+                    # Normal classes require the parameterless constructor.
+                    item = self._model()
+                    for property_name, property_value in dictionary.items():
+                        setattr(item, property_name, property_value)
                 yield item
 
     def _post(self, **kwargs: Any) -> SimpleNamespace:
