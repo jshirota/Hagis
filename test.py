@@ -1,6 +1,7 @@
 import unittest
 from attgeo import AttGeo
 
+
 class Test_ConfigHelper(unittest.TestCase):
 
     def test_run(self):
@@ -19,7 +20,7 @@ class Test_ConfigHelper(unittest.TestCase):
         mapper = AttGeo(url, City)
 
         for city in mapper.read("areaname LIKE 'Arc%'", outSR=102100):
-            print(city.__dict__)
+            self.assertTrue(city.areaname.startswith("Arc"))
 
 
 if __name__ == '__main__':
