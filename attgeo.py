@@ -1,5 +1,5 @@
 from datetime import datetime
-from json import loads
+from json import dumps, loads
 from requests import post
 from types import SimpleNamespace
 from typing import Any, Dict, Generic, Iterator, List, Tuple, Type, TypeVar
@@ -82,6 +82,25 @@ class Mapper(Generic[T]):
                     for property_name, property_value in dictionary.items():
                         setattr(item, property_name, property_value)
                 yield item
+
+    def apply_edits(self, items: List[T]):
+        print([self._to_dict(x) for x in items])
+
+    def _to_dict(self, item: T) -> Dict[str, Any]:
+
+        dictionary: Dict[str, Any] = {}
+        attributes: Dict[str, Any] = {}
+        dictionary["attributes"] = attributes
+
+        for key, value in item.__dict__.items():
+            if key == self._shape_property_name:
+                dictionary["geometry"] = value.__dict__
+            elif isinstance(value, datetime):
+                attributes[key] = int((value - datetime.utcfromtimestamp(0)).total_seconds() * 1000)
+            else:
+                attributes[key] = value
+
+        return dictionary
 
     def _post(self, **kwargs: Any) -> SimpleNamespace:
 
