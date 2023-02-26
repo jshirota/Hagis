@@ -2,7 +2,7 @@ from datetime import datetime
 from json import loads
 from requests import post
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, Iterator, List, Tuple, Type, TypeVar
+from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar
 
 
 T = TypeVar("T")
@@ -16,7 +16,7 @@ class Mapper(Generic[T]):
         AttGeoBase: Base class.
     """
 
-    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape", mapping: Dict[str, str] = {}) -> None:
+    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape", mapping: Optional[Dict[str, str]] = None) -> None:
         """ Creates a new instance of the AttGeo class.
 
         Args:
@@ -39,6 +39,7 @@ class Mapper(Generic[T]):
             return
         
         # List of custom mapping properties that have been handled.
+        custom_mapping = {} if mapping is None else mapping
         mapped: List[str] = []
 
         for type in reversed(model.__mro__):
@@ -47,8 +48,8 @@ class Mapper(Generic[T]):
 
                     key = property_name.lower()
 
-                    if property_name in mapping:
-                        self._fields[key] = mapping[property_name]
+                    if property_name in custom_mapping:
+                        self._fields[key] = custom_mapping[property_name]
                         mapped.append(property_name)
                     else:
                         self._fields[key] = property_name
@@ -58,7 +59,7 @@ class Mapper(Generic[T]):
                         self._shape_property_type = property_type
 
         # Add custom properties that have not been handled as dynamically handled propeties.
-        for (property, field) in mapping.items():
+        for (property, field) in custom_mapping.items():
             if property not in mapped:
                 self._fields[property.lower()] = field
 
