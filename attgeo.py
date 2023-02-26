@@ -1,5 +1,5 @@
 from datetime import datetime
-from json import dumps, loads
+from json import loads
 from requests import post
 from types import SimpleNamespace
 from typing import Any, Dict, Generic, Iterator, List, Tuple, Type, TypeVar
@@ -16,7 +16,7 @@ class Mapper(Generic[T]):
         AttGeoBase: Base class.
     """
 
-    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape") -> None:
+    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape", mapping: Dict[str, str] = {}) -> None:
         """ Creates a new instance of the AttGeo class.
 
         Args:
@@ -37,16 +37,30 @@ class Mapper(Generic[T]):
 
         if self._is_dynamic:
             return
+        
+        # List of custom mapping properties that have been handled.
+        mapped: List[str] = []
 
         for type in reversed(model.__mro__):
             if hasattr(type, "__annotations__"):
                 for property_name, property_type in type.__annotations__.items():
+
                     key = property_name.lower()
-                    self._fields[key] = property_name
+
+                    if property_name in mapping:
+                        self._fields[key] = mapping[property_name]
+                        mapped.append(property_name)
+                    else:
+                        self._fields[key] = property_name
 
                     if key == shape_property_name.lower():
                         self._shape_property_name = property_name
                         self._shape_property_type = property_type
+
+        # Add custom properties that have not been handled as dynamically handled propeties.
+        for (property, field) in mapping.items():
+            if property not in mapped:
+                self._fields[property.lower()] = field
 
     def read(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
         """ Queries the feature layer and yields the results as typed objects.
@@ -63,7 +77,7 @@ class Mapper(Generic[T]):
             fields = "*"
         else:
             # Otherwise, request only what is used by the model.
-            fields = ",".join([f for f in self._fields if f != self._shape_property_name.lower()])
+            fields = ",".join([f for (_, f) in self._fields.items() if f != self._shape_property_name.lower()])
 
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
@@ -72,7 +86,7 @@ class Mapper(Generic[T]):
             if self._is_dynamic:
                 yield row  # type: ignore
             else:                
-                dictionary = {property_name: getattr(row, property_name) for property_name in self._fields.values()}
+                dictionary = {property: getattr(row, field) for (property, field) in self._fields.items()}
                 if hasattr(self._model, "__dataclass_fields__"):
                     # Support for dataclasses.
                     item = self._model(*dictionary.values())
@@ -93,12 +107,16 @@ class Mapper(Generic[T]):
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
-            if key == self._shape_property_name:
+
+            property = key.lower()
+            field = self._fields[property]
+
+            if property == self._shape_property_name:
                 dictionary["geometry"] = value.__dict__
             elif isinstance(value, datetime):
-                attributes[key] = int((value - datetime.utcfromtimestamp(0)).total_seconds() * 1000)
+                attributes[field] = int((value - datetime.utcfromtimestamp(0)).total_seconds() * 1000)
             else:
-                attributes[key] = value
+                attributes[field] = value
 
         return dictionary
 
