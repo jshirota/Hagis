@@ -19,4 +19,4 @@ for city in mapper.query():
     print(city.areaname, city.pop2000, city.shape.x, city.shape.y)
 ```
 
-[More examples](https://jshirota-legendary-space-lamp-5x9r596qjjfvgr.github.dev/)
+[More examples](https://github.com/jshirota/AttGeo/blob/main/test.ipynb)
