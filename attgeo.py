@@ -62,7 +62,7 @@ class Mapper(Generic[T]):
             if property not in mapped:
                 self._fields[property.lower()] = field
 
-    def read(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
+    def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
         """ Queries the feature layer and yields the results as typed objects.
 
         Args:
@@ -82,7 +82,7 @@ class Mapper(Generic[T]):
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
-        for row in self._read(where_clause, fields, **kwargs):
+        for row in self._query(where_clause, fields, **kwargs):
             if self._is_dynamic:
                 yield row  # type: ignore
             else:                
@@ -165,7 +165,7 @@ class Mapper(Generic[T]):
         else:
             return row.attributes
 
-    def _read(self, where_clause: str, fields: str, **kwargs: Any) -> Iterator[SimpleNamespace]:
+    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterator[SimpleNamespace]:
 
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)

@@ -18,7 +18,7 @@ class Test_Mapper(unittest.TestCase):
 
         mapper = Mapper(url, City,  mapping={"pop2000": "pop2000"})
 
-        for city in mapper.read("areaname LIKE 'Arc%'", outSR=102100):
+        for city in mapper.query("areaname LIKE 'Arc%'", outSR=102100):
             self.assertTrue(city.areaname.startswith("Arc"))
             self.assertTrue(getattr(city, "pop2000") > 0)
 
