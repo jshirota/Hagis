@@ -1,8 +1,8 @@
 from datetime import datetime
-from json import loads
+from json import dumps, loads
 from requests import post
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar, Union
 
 
 T = TypeVar("T")
@@ -98,8 +98,15 @@ class Mapper(Generic[T]):
                         setattr(item, property_name, property_value)
                 yield item
 
-    def apply_edits(self, items: List[T]):
-        print([self._to_dict(x) for x in items])
+    def apply_edits(self, adds: Optional[List[T]] = None, updates: Optional[List[T]] = None, deletes: Union[List[int], List[str], None] = None, **kwargs: Any) -> SimpleNamespace:
+
+        adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
+        updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
+        deletes_json = "" if deletes is None else dumps([x for x in deletes])
+
+        result = self._post("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, f="json", **kwargs)
+
+        return result
 
     def _to_dict(self, item: T) -> Dict[str, Any]:
 
@@ -121,9 +128,9 @@ class Mapper(Generic[T]):
 
         return dictionary
 
-    def _post(self, **kwargs: Any) -> SimpleNamespace:
+    def _post(self, method: str, **kwargs: Any) -> SimpleNamespace:
 
-        response = post(f"{self._layer_url}/query", kwargs)
+        response = post(f"{self._layer_url}/{method}", kwargs)
 
         # Map it to a dynamic object.
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
@@ -136,7 +143,7 @@ class Mapper(Generic[T]):
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
 
-        obj = self._post(where=where_clause, outFields=fields, f="json", **kwargs)
+        obj = self._post("query", where=where_clause, outFields=fields, f="json", **kwargs)
 
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"]
 
@@ -150,7 +157,7 @@ class Mapper(Generic[T]):
 
     def _get_oids(self, where_clause: str) -> List[int]:
 
-        obj = self._post(where=where_clause, returnIdsOnly="true", f="json")
+        obj = self._post("query", where=where_clause, returnIdsOnly="true", f="json")
 
         return obj.objectIds
 
