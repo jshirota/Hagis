@@ -115,8 +115,8 @@ class Mapper(Generic[T]):
     def update(self, items: List[T], **kwargs: Any) -> None:
         self.apply_edits(updates=items, **kwargs)
 
-    def delete(self, items: Union[List[int], List[str]], **kwargs: Any) -> None:
-        self.apply_edits(deletes=items, **kwargs)
+    def delete(self, where_clause: str, **kwargs: Any) -> None:
+        self._post("deleteFeatures", where=where_clause, f="json", **kwargs)
     
     def _to_dict(self, item: T) -> Dict[str, Any]:
 
@@ -155,7 +155,7 @@ class Mapper(Generic[T]):
 
         obj = self._post("query", where=where_clause, outFields=fields, f="json", **kwargs)
 
-        date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"]
+        date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
 
         if date_fields:
             for f in obj.features:
