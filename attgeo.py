@@ -108,6 +108,16 @@ class Mapper(Generic[T]):
 
         return result
 
+    def add(self, items: List[T], **kwargs: Any) -> List[int]:
+        result = self.apply_edits(adds=items, **kwargs)
+        return [x.objectId for x in result.addResults]
+
+    def update(self, items: List[T], **kwargs: Any) -> None:
+        self.apply_edits(updates=items, **kwargs)
+
+    def delete(self, items: Union[List[int], List[str]], **kwargs: Any) -> None:
+        self.apply_edits(deletes=items, **kwargs)
+    
     def _to_dict(self, item: T) -> Dict[str, Any]:
 
         dictionary: Dict[str, Any] = {}
