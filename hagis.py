@@ -4,9 +4,7 @@ from requests import post
 from types import SimpleNamespace
 from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar, Union
 
-
 T = TypeVar("T")
-
 
 class Mapper(Generic[T]):
     """ 
@@ -25,7 +23,6 @@ class Mapper(Generic[T]):
             oid_field (str, optional): Name of the Object ID field.  Defaults to "objectid".
             shape_property_name (str, optional): Name of the shape property.  Defaults to "shape".
         """
-
         self._layer_url = layer_url
         self._model = model
         self._oid_field = oid_field
@@ -45,7 +42,6 @@ class Mapper(Generic[T]):
         for type in reversed(model.__mro__):
             if hasattr(type, "__annotations__"):
                 for property_name, property_type in type.__annotations__.items():
-
                     key = property_name.lower()
 
                     if property_name in custom_mapping:
@@ -72,7 +68,6 @@ class Mapper(Generic[T]):
         Yields:
             Iterator[T]: Lazily generated objects of specified type.
         """
-
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -98,17 +93,20 @@ class Mapper(Generic[T]):
                         setattr(item, property_name, property_value)
                 yield item
 
-    def apply_edits(self, adds: Optional[List[T]] = None, updates: Optional[List[T]] = None, deletes: Union[List[int], List[str], None] = None, **kwargs: Any) -> SimpleNamespace:
+    def find(self, oid: int) -> Optional[T]:
+        items = [item for item in self.query(f"{self._oid_field}={oid}")]
+        if items:
+            return items[0]
 
+    def apply_edits(self, adds: Optional[List[T]] = None, updates: Optional[List[T]] = None, deletes: Union[List[int], List[str], None] = None, **kwargs: Any) -> SimpleNamespace:
         adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
         updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
         deletes_json = "" if deletes is None else dumps([x for x in deletes])
 
         result = self._post("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, f="json", **kwargs)
-
         return result
 
-    def add(self, items: List[T], **kwargs: Any) -> List[int]:
+    def insert(self, items: List[T], **kwargs: Any) -> List[int]:
         result = self.apply_edits(adds=items, **kwargs)
         return [x.objectId for x in result.addResults]
 
@@ -119,16 +117,13 @@ class Mapper(Generic[T]):
         self._post("deleteFeatures", where=where_clause, f="json", **kwargs)
     
     def _to_dict(self, item: T) -> Dict[str, Any]:
-
         dictionary: Dict[str, Any] = {}
         attributes: Dict[str, Any] = {}
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
-
             property = key.lower()
             field = self._fields[property]
-
             if property == self._shape_property_name:
                 dictionary["geometry"] = value.__dict__
             elif isinstance(value, datetime):
@@ -139,7 +134,6 @@ class Mapper(Generic[T]):
         return dictionary
 
     def _post(self, method: str, **kwargs: Any) -> SimpleNamespace:
-
         response = post(f"{self._layer_url}/{method}", kwargs)
 
         # Map it to a dynamic object.
@@ -152,7 +146,6 @@ class Mapper(Generic[T]):
         return obj
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
-
         obj = self._post("query", where=where_clause, outFields=fields, f="json", **kwargs)
 
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
@@ -166,25 +159,21 @@ class Mapper(Generic[T]):
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
     def _get_oids(self, where_clause: str) -> List[int]:
-
         obj = self._post("query", where=where_clause, returnIdsOnly="true", f="json")
-
         return obj.objectIds
 
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
-
-        if hasattr(row, "geometry"):
-            if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
-                shape = row.geometry
-            else:
-                shape = self._shape_property_type()
-                shape.__dict__ = row.geometry.__dict__
-            return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
-        else:
+        if not hasattr(row, "geometry"):
             return row.attributes
 
-    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterator[SimpleNamespace]:
+        if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
+            shape = row.geometry
+        else:
+            shape = self._shape_property_type()
+            shape.__dict__ = row.geometry.__dict__
+        return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
+    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterator[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
