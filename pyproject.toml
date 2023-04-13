@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hagis"
+version = "0.1.1"
+authors = [
+  { name="Jiro Shirota", email="jshirota@gmail.com" },
+]
+description = "A high availability GIS client"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jshirota/Hagis"
+"Bug Tracker" = "https://github.com/jshirota/Hagis/issues"

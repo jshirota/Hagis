@@ -1,6 +1,6 @@
 # Hagis
 
-A High Availability GIS client.
+A high availability GIS client
 
 ```python
 from hagis import Mapper, Point

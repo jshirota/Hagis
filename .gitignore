@@ -1,1 +1,2 @@
-__pycache__/hagis.cpython-39.pyc
+dist/
+*.egg-info/
