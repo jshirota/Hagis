@@ -1,2 +1,3 @@
-dist/
 *.egg-info/
+dist/
+hagis/__pycache__/

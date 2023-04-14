@@ -93,8 +93,8 @@ class Mapper(Generic[T]):
                         setattr(item, property_name, property_value)
                 yield item
 
-    def find(self, oid: int) -> Optional[T]:
-        items = [item for item in self.query(f"{self._oid_field}={oid}")]
+    def find(self, oid: int, **kwargs: Any) -> Optional[T]:
+        items = [item for item in self.query(f"{self._oid_field}={oid}", **kwargs)]
         if items:
             return items[0]
 
