@@ -59,14 +59,6 @@ class Layer(Generic[T]):
                 self._fields[property.lower()] = field
 
     def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
-        """ Queries the feature layer and yields the results as typed objects.
-
-        Args:
-            where_clause (str, optional): Where clause.  Defaults to "1=1".
-
-        Yields:
-            Iterator[T]: Lazily generated objects of specified type.
-        """
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -91,6 +83,10 @@ class Layer(Generic[T]):
                     for property_name, property_value in dictionary.items():
                         setattr(item, property_name, property_value)
                 yield item
+
+    def count(self, where_clause: str = "1=1") -> int:
+        obj = self._post("query", where=where_clause, returnCountOnly=True, f="json")
+        return obj.count
 
     def find(self, oid: int, **kwargs: Any) -> Optional[T]:
         items = [item for item in self.query(f"{self._oid_field}={oid}", **kwargs)]
