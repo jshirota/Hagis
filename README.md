@@ -3,9 +3,7 @@
 A high availability GIS client
 
 ```python
-from hagis import Mapper, Point
-
-url = "https://sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer/0"
+from hagis import Layer, Point
 
 class City:
     objectid: int
@@ -13,9 +11,9 @@ class City:
     pop2000: int
     shape: Point
 
-mapper = Mapper(url, City)
+layer = Layer("https://sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer/0", City)
 
-for city in mapper.query():
+for city in layer.query():
     print(city.areaname, city.pop2000, city.shape.x, city.shape.y)
 ```
 

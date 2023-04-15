@@ -2,20 +2,13 @@ from datetime import datetime
 from json import dumps, loads
 from requests import post
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
 
 T = TypeVar("T")
 
 class Layer(Generic[T]):
-    """ 
-
-    Args:
-        Generic (T): Type argument.
-        AttGeoBase: Base class.
-    """
-
     def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape", **mapping: str) -> None:
-        """ Creates a new instance of the AttGeo class.
+        """ Creates a new instance of the Layer class.
 
         Args:
             layer_url (str): Layer url (e.g. .../FeatureServer/0).
@@ -58,7 +51,7 @@ class Layer(Generic[T]):
             if property not in mapped:
                 self._fields[property.lower()] = field
 
-    def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterator[T]:
+    def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -168,7 +161,7 @@ class Layer(Generic[T]):
             shape.__dict__ = row.geometry.__dict__
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
-    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterator[SimpleNamespace]:
+    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterable[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
