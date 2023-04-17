@@ -25,7 +25,7 @@ class Layer(Generic[T]):
         self._shape_property_type = None
         self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._fields: Dict[str, str] = {}
-        self.generate_token: Callable[[], str] = lambda: ""
+        self._generate_token: Callable[[], str] = lambda: ""
         self._is_dynamic = model == SimpleNamespace
 
         if self._is_dynamic:
@@ -77,7 +77,7 @@ class Layer(Generic[T]):
 
             return token
         
-        self.generate_token = generate_token;
+        self._generate_token = generate_token;
 
     def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
         if self._is_dynamic:
@@ -151,7 +151,7 @@ class Layer(Generic[T]):
 
     def _post(self, method: str, **kwargs: Any) -> SimpleNamespace:
         # Update the token.
-        kwargs["token"] = self.generate_token()
+        kwargs["token"] = self._generate_token()
         response = post(f"{self._layer_url}/{method}", kwargs)
 
         # Map it to a dynamic object.
