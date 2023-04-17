@@ -1,8 +1,10 @@
 from datetime import datetime
+from hashlib import md5
 from json import dumps, loads
 from requests import post
+from time import time
 from types import SimpleNamespace
-from typing import Any, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
 
 T = TypeVar("T")
 
@@ -23,6 +25,7 @@ class Layer(Generic[T]):
         self._shape_property_type = None
         self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._fields: Dict[str, str] = {}
+        self.generate_token: Callable[[], str] = lambda: ""
         self._is_dynamic = model == SimpleNamespace
 
         if self._is_dynamic:
@@ -50,6 +53,32 @@ class Layer(Generic[T]):
         for property, field in mapping.items():
             if property not in mapped:
                 self._fields[property.lower()] = field
+
+    _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
+
+    def set_token_generator(self, generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **parameters: Any):
+        parameters["f"] = "json"
+
+        key = generate_token_url, md5(dumps(parameters).encode("utf-8")).hexdigest()
+
+        def generate_token() -> str:
+            if key not in Layer._token_cache:
+                Layer._token_cache[key] = "", 0
+
+            # Get the cached token and its expiry.
+            token, cachcurrent_expiration_seconds = Layer._token_cache[key];
+
+            # Renew if less than a minute left.
+            if cachcurrent_expiration_seconds - time() < 60:
+                response = post(generate_token_url, data = parameters)
+                dictionary = loads(response.content)
+                token = dictionary["token"]
+                current_expiration_seconds = dictionary["expires"] / 1000
+                Layer._token_cache[key] = token, current_expiration_seconds
+
+            return token
+        
+        self.generate_token = generate_token;
 
     def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
         if self._is_dynamic:
@@ -122,6 +151,8 @@ class Layer(Generic[T]):
         return dictionary
 
     def _post(self, method: str, **kwargs: Any) -> SimpleNamespace:
+        # Update the token.
+        kwargs["token"] = self.generate_token()
         response = post(f"{self._layer_url}/{method}", kwargs)
 
         # Map it to a dynamic object.
