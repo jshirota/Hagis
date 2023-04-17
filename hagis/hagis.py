@@ -66,15 +66,14 @@ class Layer(Generic[T]):
                 Layer._token_cache[key] = "", 0
 
             # Get the cached token and its expiry.
-            token, cachcurrent_expiration_seconds = Layer._token_cache[key];
+            token, expiration_seconds = Layer._token_cache[key];
 
             # Renew if less than a minute left.
-            if cachcurrent_expiration_seconds - time() < 60:
+            if expiration_seconds - time() < 60:
                 response = post(generate_token_url, data = parameters)
                 dictionary = loads(response.content)
-                token = dictionary["token"]
-                current_expiration_seconds = dictionary["expires"] / 1000
-                Layer._token_cache[key] = token, current_expiration_seconds
+                token, expiration_seconds = dictionary["token"], dictionary["expires"] / 1000
+                Layer._token_cache[key] = token, expiration_seconds
 
             return token
         
