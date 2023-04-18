@@ -30,7 +30,7 @@ class Layer(Generic[T]):
 
         if self._is_dynamic:
             return
-        
+
         # List of custom mapping properties that have been handled.
         mapped: List[str] = []
 
@@ -56,7 +56,7 @@ class Layer(Generic[T]):
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
-    def set_token_generator(self, generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **parameters: Any):
+    def set_token_generator(self, generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **parameters: Any) -> None:
         parameters["f"] = "json"
 
         key = generate_token_url, md5(dumps(parameters).encode("utf-8")).hexdigest()
@@ -70,13 +70,12 @@ class Layer(Generic[T]):
 
             # Renew if less than a minute left.
             if expiration_seconds - time() < 60:
-                response = post(generate_token_url, data = parameters)
-                dictionary = loads(response.content)
-                token, expiration_seconds = dictionary["token"], dictionary["expires"] / 1000
+                obj = self._post(generate_token_url, **parameters)
+                token, expiration_seconds = obj.token, obj.expires / 1000
                 Layer._token_cache[key] = token, expiration_seconds
 
             return token
-        
+
         self._generate_token = generate_token;
 
     def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
@@ -93,7 +92,7 @@ class Layer(Generic[T]):
         for row in self._query(where_clause, fields, **kwargs):
             if self._is_dynamic:
                 yield row  # type: ignore
-            else:                
+            else:
                 dictionary = {property: getattr(row, field) for (property, field) in self._fields.items()}
                 if hasattr(self._model, "__dataclass_fields__"):
                     # Support for dataclasses.
@@ -106,7 +105,7 @@ class Layer(Generic[T]):
                 yield item
 
     def count(self, where_clause: str = "1=1") -> int:
-        obj = self._post("query", where=where_clause, returnCountOnly=True, f="json")
+        obj = self._post_with_token("query", where=where_clause, returnCountOnly=True, f="json")
         return obj.count
 
     def find(self, oid: int, **kwargs: Any) -> Optional[T]:
@@ -118,9 +117,7 @@ class Layer(Generic[T]):
         adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
         updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
         deletes_json = "" if deletes is None else dumps([x for x in deletes])
-
-        result = self._post("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, f="json", **kwargs)
-        return result
+        return self._post_with_token("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, f="json", **kwargs)
 
     def insert(self, items: List[T], **kwargs: Any) -> List[int]:
         result = self.apply_edits(adds=items, **kwargs)
@@ -130,11 +127,12 @@ class Layer(Generic[T]):
         self.apply_edits(updates=items, **kwargs)
 
     def delete(self, where_clause: str, **kwargs: Any) -> None:
-        self._post("deleteFeatures", where=where_clause, f="json", **kwargs)
-    
+        self._post_with_token("deleteFeatures", where=where_clause, f="json", **kwargs)
+
     def _to_dict(self, item: T) -> Dict[str, Any]:
         dictionary: Dict[str, Any] = {}
         attributes: Dict[str, Any] = {}
+
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
@@ -149,23 +147,21 @@ class Layer(Generic[T]):
 
         return dictionary
 
-    def _post(self, method: str, **kwargs: Any) -> SimpleNamespace:
-        # Update the token.
-        kwargs["token"] = self._generate_token()
-        response = post(f"{self._layer_url}/{method}", kwargs)
-
-        # Map it to a dynamic object.
+    def _post(self, url: str, **kwargs: Any) -> SimpleNamespace:
+        response = post(url, kwargs)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
-        # If this is an error response, throw an exception.
         if hasattr(obj, "error"):
             raise Exception(obj.error.message)
 
         return obj
 
-    def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
-        obj = self._post("query", where=where_clause, outFields=fields, f="json", **kwargs)
+    def _post_with_token(self, method: str, **kwargs: Any) -> SimpleNamespace:
+        kwargs["token"] = self._generate_token()
+        return self._post(f"{self._layer_url}/{method}", **kwargs)
 
+    def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
+        obj = self._post_with_token("query", where=where_clause, outFields=fields, f="json", **kwargs)
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
 
         if date_fields:
@@ -177,7 +173,7 @@ class Layer(Generic[T]):
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
     def _get_oids(self, where_clause: str) -> List[int]:
-        obj = self._post("query", where=where_clause, returnIdsOnly="true", f="json")
+        obj = self._post_with_token("query", where=where_clause, returnIdsOnly="true", f="json")
         return obj.objectIds
 
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
@@ -189,6 +185,7 @@ class Layer(Generic[T]):
         else:
             shape = self._shape_property_type()
             shape.__dict__ = row.geometry.__dict__
+
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
     def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterable[SimpleNamespace]:
