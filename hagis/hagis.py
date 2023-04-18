@@ -56,27 +56,33 @@ class Layer(Generic[T]):
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
-    def set_token_generator(self, generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **parameters: Any) -> None:
-        parameters["f"] = "json"
+    def set_token_generator(self, username: str, password: str, referer: str = "", generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **kwargs: Any) -> None:
+        kwargs["username"] = username
+        kwargs["password"] = password
+        kwargs["referer"] = referer
+        kwargs["client"] = "referer" if referer else "ip" if "ip" in kwargs else "requestip"
 
-        key = generate_token_url, md5(dumps(parameters).encode("utf-8")).hexdigest()
+        key = generate_token_url, md5(dumps(kwargs).encode("utf-8")).hexdigest()
 
         def generate_token() -> str:
             if key not in Layer._token_cache:
                 Layer._token_cache[key] = "", 0
 
             # Get the cached token and its expiry.
-            token, expiration_seconds = Layer._token_cache[key];
+            token, expiration_seconds = Layer._token_cache[key]
 
             # Renew if less than a minute left.
             if expiration_seconds - time() < 60:
-                obj = self._post(generate_token_url, **parameters)
+                obj = self._post(generate_token_url, **kwargs)
                 token, expiration_seconds = obj.token, obj.expires / 1000
                 Layer._token_cache[key] = token, expiration_seconds
 
             return token
 
-        self._generate_token = generate_token;
+        self._generate_token = generate_token
+
+    def set_token(self, token: str) -> None:
+        self._generate_token = lambda: token
 
     def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
         if self._is_dynamic:
@@ -85,7 +91,6 @@ class Layer(Generic[T]):
         else:
             # Otherwise, request only what is used by the model.
             fields = ",".join([f for (_, f) in self._fields.items() if f != self._shape_property_name.lower()])
-
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
@@ -105,7 +110,7 @@ class Layer(Generic[T]):
                 yield item
 
     def count(self, where_clause: str = "1=1") -> int:
-        obj = self._post_with_token("query", where=where_clause, returnCountOnly=True, f="json")
+        obj = self._call("query", where=where_clause, returnCountOnly=True)
         return obj.count
 
     def find(self, oid: int, **kwargs: Any) -> Optional[T]:
@@ -117,7 +122,7 @@ class Layer(Generic[T]):
         adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
         updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
         deletes_json = "" if deletes is None else dumps([x for x in deletes])
-        return self._post_with_token("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, f="json", **kwargs)
+        return self._call("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, **kwargs)
 
     def insert(self, items: List[T], **kwargs: Any) -> List[int]:
         result = self.apply_edits(adds=items, **kwargs)
@@ -127,7 +132,7 @@ class Layer(Generic[T]):
         self.apply_edits(updates=items, **kwargs)
 
     def delete(self, where_clause: str, **kwargs: Any) -> None:
-        self._post_with_token("deleteFeatures", where=where_clause, f="json", **kwargs)
+        self._call("deleteFeatures", where=where_clause, **kwargs)
 
     def _to_dict(self, item: T) -> Dict[str, Any]:
         dictionary: Dict[str, Any] = {}
@@ -148,6 +153,7 @@ class Layer(Generic[T]):
         return dictionary
 
     def _post(self, url: str, **kwargs: Any) -> SimpleNamespace:
+        kwargs["f"] = "json"
         response = post(url, kwargs)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
@@ -156,12 +162,12 @@ class Layer(Generic[T]):
 
         return obj
 
-    def _post_with_token(self, method: str, **kwargs: Any) -> SimpleNamespace:
+    def _call(self, method: str, **kwargs: Any) -> SimpleNamespace:
         kwargs["token"] = self._generate_token()
         return self._post(f"{self._layer_url}/{method}", **kwargs)
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
-        obj = self._post_with_token("query", where=where_clause, outFields=fields, f="json", **kwargs)
+        obj = self._call("query", where=where_clause, outFields=fields, **kwargs)
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
 
         if date_fields:
@@ -173,7 +179,7 @@ class Layer(Generic[T]):
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
     def _get_oids(self, where_clause: str) -> List[int]:
-        obj = self._post_with_token("query", where=where_clause, returnIdsOnly="true", f="json")
+        obj = self._call("query", where=where_clause, returnIdsOnly="true")
         return obj.objectIds
 
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
