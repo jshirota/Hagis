@@ -1,5 +1,6 @@
 from datetime import datetime
 from hashlib import md5
+from itertools import islice
 from json import dumps, loads
 from requests import post
 from time import time
@@ -84,7 +85,7 @@ class Layer(Generic[T]):
     def set_token(self, token: str) -> None:
         self._generate_token = lambda: token
 
-    def query(self, where_clause: str = "1=1", **kwargs: Any) -> Iterable[T]:
+    def query(self, where_clause: str = "1=1", record_count: Optional[int] = None, **kwargs: Any) -> Iterable[T]:
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -94,7 +95,13 @@ class Layer(Generic[T]):
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
-        for row in self._query(where_clause, fields, **kwargs):
+        if record_count is None:
+            keep_querying = False
+        else:
+            keep_querying = True
+            kwargs["resultRecordCount"] = record_count if record_count else 1
+
+        for row in islice(self._query(where_clause, fields, keep_querying, **kwargs), record_count):
             if self._is_dynamic:
                 yield row  # type: ignore
             else:
@@ -194,7 +201,7 @@ class Layer(Generic[T]):
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
-    def _query(self, where_clause: str, fields: str, **kwargs: Any) -> Iterable[SimpleNamespace]:
+    def _query(self, where_clause: str, fields: str, keep_querying: bool, **kwargs: Any) -> Iterable[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
@@ -203,7 +210,7 @@ class Layer(Generic[T]):
         for row in rows:
             yield self._map(row)
 
-        if exceededTransferLimit:
+        if exceededTransferLimit and keep_querying:
             size = len(rows)
             oids = self._get_oids(where_clause)
             for n in range(size, len(oids), size):
