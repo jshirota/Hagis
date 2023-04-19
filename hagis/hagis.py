@@ -1,16 +1,23 @@
+""" A high availability GIS client. """
 from datetime import datetime
 from hashlib import md5
 from itertools import islice
 from json import dumps, loads
-from requests import post
 from time import time
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
+from requests import post
 
 T = TypeVar("T")
 
-class Layer(Generic[T]):
-    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace, oid_field: str = "objectid", shape_property_name: str = "shape", **mapping: str) -> None:
+class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
+    """ Layer class.
+
+    Args:
+        Generic (T): Type argument.
+    """
+    def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace,
+                 oid_field: str = "objectid", shape_property_name: str = "shape", **mapping: str) -> None:
         """ Creates a new instance of the Layer class.
 
         Args:
@@ -35,9 +42,9 @@ class Layer(Generic[T]):
         # List of custom mapping properties that have been handled.
         mapped: List[str] = []
 
-        for type in reversed(model.__mro__):
-            if hasattr(type, "__annotations__"):
-                for property_name, property_type in type.__annotations__.items():
+        for model_type in reversed(model.__mro__):
+            if hasattr(model_type, "__annotations__"):
+                for property_name, property_type in model_type.__annotations__.items():
                     key = property_name.lower()
 
                     if property_name in mapping:
@@ -51,19 +58,28 @@ class Layer(Generic[T]):
                         self._shape_property_type = property_type
 
         # Add custom properties that have not been handled as dynamically handled propeties.
-        for property, field in mapping.items():
-            if property not in mapped:
-                self._fields[property.lower()] = field
+        for property_name, field in mapping.items():
+            if property_name not in mapped:
+                self._fields[property_name.lower()] = field
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
-    def set_token_generator(self, username: str, password: str, referer: str = "", generate_token_url: str = "https://www.arcgis.com/sharing/generateToken", **kwargs: Any) -> None:
+    def set_token_generator(self, username: str, password: str, referer: str = "",
+                            token_url: str = "https://www.arcgis.com/sharing/generateToken", **kwargs: Any) -> None:
+        """ Sets the token generation parameters.
+
+        Args:
+            username (str): User name.
+            password (str): Password.
+            referer (str, optional): Referer.  Defaults to "".
+            token_url (str, optional): Endpoint.  Defaults to "https://www.arcgis.com/sharing/generateToken".
+        """
         kwargs["username"] = username
         kwargs["password"] = password
         kwargs["referer"] = referer
         kwargs["client"] = "referer" if referer else "ip" if "ip" in kwargs else "requestip"
 
-        key = generate_token_url, md5(dumps(kwargs).encode("utf-8")).hexdigest()
+        key = token_url, md5(dumps(kwargs).encode("utf-8")).hexdigest()
 
         def generate_token() -> str:
             if key not in Layer._token_cache:
@@ -74,7 +90,7 @@ class Layer(Generic[T]):
 
             # Renew if less than a minute left.
             if expiration_seconds - time() < 60:
-                obj = self._post(generate_token_url, **kwargs)
+                obj = self._post(token_url, **kwargs)
                 token, expiration_seconds = obj.token, obj.expires / 1000
                 Layer._token_cache[key] = token, expiration_seconds
 
@@ -83,9 +99,25 @@ class Layer(Generic[T]):
         self._generate_token = generate_token
 
     def set_token(self, token: str) -> None:
+        """ Sets the static token.
+
+        Args:
+            token (str): Token.
+        """
         self._generate_token = lambda: token
 
-    def query(self, where_clause: str = "1=1", record_count: Optional[int] = None, **kwargs: Any) -> Iterable[T]:
+    def query(self, where_clause: str = "1=1", record_count: Optional[int] = None, wkid: Optional[int] = None,
+              **kwargs: Any) -> Iterable[T]:
+        """ Executes a query.
+
+        Args:
+            where_clause (str, optional): Where clause.  Defaults to "1=1".
+            record_count (Optional[int], optional): Maximum record count.  Defaults to None.
+            wkid (Optional[int], optional): Spatial reference.  Defaults to None.
+
+        Returns:
+            Iterable[T]: Items.
+        """
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -100,6 +132,9 @@ class Layer(Generic[T]):
         else:
             keep_querying = True
             kwargs["resultRecordCount"] = record_count if record_count else 1
+
+        if wkid:
+            kwargs["outSR"] = wkid
 
         for row in islice(self._query(where_clause, fields, keep_querying, **kwargs), record_count):
             if self._is_dynamic:
@@ -117,28 +152,74 @@ class Layer(Generic[T]):
                 yield item
 
     def count(self, where_clause: str = "1=1") -> int:
+        """ Checks the number of items that match the where clause.
+
+        Args:
+            where_clause (str, optional): Where clause.  Defaults to "1=1".
+
+        Returns:
+            int: Count.
+        """
         obj = self._call("query", where=where_clause, returnCountOnly=True)
         return obj.count
 
     def find(self, oid: int, **kwargs: Any) -> Optional[T]:
-        items = [item for item in self.query(f"{self._oid_field}={oid}", **kwargs)]
-        if items:
-            return items[0]
+        """ Finds the item by Object ID.
 
-    def apply_edits(self, adds: Optional[List[T]] = None, updates: Optional[List[T]] = None, deletes: Union[List[int], List[str], None] = None, **kwargs: Any) -> SimpleNamespace:
+        Args:
+            oid (int): Object ID.
+
+        Returns:
+            Optional[T]: Item if found (otherwise None).
+        """
+        items = list(self.query(f"{self._oid_field}={oid}", **kwargs))
+        return items[0] if items else None
+
+    def apply_edits(self,
+                    adds: Optional[List[T]] = None,
+                    updates: Optional[List[T]] = None,
+                    deletes: Union[List[int], List[str], None] = None, **kwargs: Any) -> SimpleNamespace:
+        """ Applies multiple edits atomically.
+
+        Args:
+            adds (Optional[List[T]], optional): Items to insert.  Defaults to None.
+            updates (Optional[List[T]], optional): Items to update.  Defaults to None.
+            deletes (Union[List[int], List[str], None], optional): Object IDs of items to delete.  Defaults to None.
+
+        Returns:
+            SimpleNamespace: Edit result object.
+        """
         adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
         updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
         deletes_json = "" if deletes is None else dumps([x for x in deletes])
         return self._call("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, **kwargs)
 
     def insert(self, items: List[T], **kwargs: Any) -> List[int]:
+        """ Inserts new items on the remote server.
+
+        Args:
+            items (List[T]): Items to insert.
+
+        Returns:
+            List[int]: Object IDs of the newly created items.
+        """
         result = self.apply_edits(adds=items, **kwargs)
         return [x.objectId for x in result.addResults]
 
     def update(self, items: List[T], **kwargs: Any) -> None:
+        """ Updates existing items on the remote server.
+
+        Args:
+            items (List[T]): Items to update.
+        """
         self.apply_edits(updates=items, **kwargs)
 
     def delete(self, where_clause: str, **kwargs: Any) -> None:
+        """ Deletes items based on a where clause.
+
+        Args:
+            where_clause (str): Where clause use for deleting.
+        """
         self._call("deleteFeatures", where=where_clause, **kwargs)
 
     def _to_dict(self, item: T) -> Dict[str, Any]:
@@ -148,9 +229,9 @@ class Layer(Generic[T]):
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
-            property = key.lower()
-            field = self._fields[property]
-            if property == self._shape_property_name:
+            lower_property_name = key.lower()
+            field = self._fields[lower_property_name]
+            if lower_property_name == self._shape_property_name.lower():
                 dictionary["geometry"] = value.__dict__
             elif isinstance(value, datetime):
                 attributes[field] = int((value - datetime.utcfromtimestamp(0)).total_seconds() * 1000)
@@ -161,11 +242,11 @@ class Layer(Generic[T]):
 
     def _post(self, url: str, **kwargs: Any) -> SimpleNamespace:
         kwargs["f"] = "json"
-        response = post(url, kwargs)
+        response = post(url, timeout=2, data=kwargs)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
         if hasattr(obj, "error"):
-            raise Exception(obj.error.message)
+            raise RuntimeError(obj.error.message)
 
         return obj
 
@@ -178,10 +259,10 @@ class Layer(Generic[T]):
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
 
         if date_fields:
-            for f in obj.features:
-                for key, value in f.attributes.__dict__.items():
+            for feature in obj.features:
+                for key, value in feature.attributes.__dict__.items():
                     if key in date_fields and value:
-                        f.attributes.__dict__[key] = datetime.fromtimestamp(value / 1000)
+                        feature.attributes.__dict__[key] = datetime.fromtimestamp(value / 1000)
 
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
@@ -205,30 +286,38 @@ class Layer(Generic[T]):
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
-        rows, exceededTransferLimit = get_rows(where_clause)
+        rows, exceeded_transfer_limit = get_rows(where_clause)
 
         for row in rows:
             yield self._map(row)
 
-        if exceededTransferLimit and keep_querying:
+        if exceeded_transfer_limit and keep_querying:
             size = len(rows)
             oids = self._get_oids(where_clause)
-            for n in range(size, len(oids), size):
-                more_where_clause = f"{self._oid_field} IN ({','.join(map(str, oids[n:n+size]))})"
+            for number in range(size, len(oids), size):
+                more_where_clause = f"{self._oid_field} IN ({','.join(map(str, oids[number:number+size]))})"
                 more_rows, _ = get_rows(more_where_clause)
                 for row in more_rows:
                     yield self._map(row)
 
 
-class Point:
+class Point: # pylint: disable=too-few-public-methods
+    """ Point class.
+    """
     x: float
     y: float
 
-class Multipoint:
+class Multipoint: # pylint: disable=too-few-public-methods
+    """ Multipoint class.
+    """
     points: List[List[float]]
 
-class Polyline:
+class Polyline: # pylint: disable=too-few-public-methods
+    """ Polyline class.
+    """
     paths: List[List[List[float]]]
 
-class Polygon:
+class Polygon: # pylint: disable=too-few-public-methods
+    """ Polygon class.
+    """
     rings: List[List[List[float]]]
