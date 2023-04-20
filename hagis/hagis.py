@@ -118,6 +118,9 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         Returns:
             Iterable[T]: Items.
         """
+        if record_count == 0:
+            return
+
         if self._is_dynamic:
             # If dynamic, request all fields.
             fields = "*"
@@ -127,11 +130,11 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
-        if record_count is None:
-            keep_querying = False
-        else:
+        if record_count:
             keep_querying = True
-            kwargs["resultRecordCount"] = record_count if record_count else 1
+            kwargs["resultRecordCount"] = record_count
+        else:
+            keep_querying = False
 
         if wkid:
             kwargs["outSR"] = wkid
