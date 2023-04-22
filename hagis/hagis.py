@@ -245,7 +245,7 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
 
     def _post(self, url: str, **kwargs: Any) -> SimpleNamespace:
         kwargs["f"] = "json"
-        response = post(url, timeout=2, data=kwargs)
+        response = post(url, data=kwargs, timeout=10)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
         if hasattr(obj, "error"):
