@@ -1,7 +1,8 @@
 """ A high availability GIS client. """
 from datetime import datetime
 from hashlib import md5
-from itertools import islice
+from inspect import signature
+from itertools import chain, islice
 from json import dumps, loads
 from time import time
 from types import SimpleNamespace
@@ -34,8 +35,12 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._fields: Dict[str, str] = {}
         self._generate_token: Callable[[], str] = lambda: ""
-        self._requires_init_parameters = hasattr(model, "__dataclass_fields__") or hasattr(model, "_asdict")
-        self._is_dynamic = model == SimpleNamespace
+
+        self._has_parameterless_constructor = len(set(chain(
+            signature(model.__init__).parameters.keys(),
+            signature(model.__new__).parameters.keys()))) == 3
+
+        self._is_dynamic = issubclass(model, SimpleNamespace)
 
         if self._is_dynamic:
             return
@@ -148,13 +153,14 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
                 yield row  # type: ignore
             else:
                 dictionary = {property: getattr(row, field) for (property, field) in self._fields.items()}
-                if self._requires_init_parameters:
-                    # Support for data classes and named tuples.
-                    item = self._model(*dictionary.values())
-                else:
+                if self._has_parameterless_constructor:
                     item = self._model()
                     for property_name, property_value in dictionary.items():
                         setattr(item, property_name, property_value)
+                else:
+                    # Support for data classes and named tuples.
+                    item = self._model(*dictionary.values())
+
                 yield item
 
     def count(self, where_clause: Optional[str] = None) -> int:
