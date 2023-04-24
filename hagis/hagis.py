@@ -34,6 +34,7 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._fields: Dict[str, str] = {}
         self._generate_token: Callable[[], str] = lambda: ""
+        self._requires_init_parameters = hasattr(model, "__dataclass_fields__") or hasattr(model, "_asdict")
         self._is_dynamic = model == SimpleNamespace
 
         if self._is_dynamic:
@@ -42,7 +43,7 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         # List of custom mapping properties that have been handled.
         mapped: List[str] = []
 
-        for model_type in reversed(model.__mro__):
+        for model_type in reversed(model.mro()):
             if hasattr(model_type, "__annotations__"):
                 for property_name, property_type in model_type.__annotations__.items():
                     key = property_name.lower()
@@ -106,18 +107,21 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         """
         self._generate_token = lambda: token
 
-    def query(self, where_clause: str = "1=1", record_count: Optional[int] = None, wkid: Optional[int] = None,
+    def query(self, where_clause: Optional[str] = None, record_count: Optional[int] = None, wkid: Optional[int] = None,
               **kwargs: Any) -> Iterable[T]:
         """ Executes a query.
 
         Args:
-            where_clause (str, optional): Where clause.  Defaults to "1=1".
+            where_clause (str, optional): Where clause.  Defaults to None.
             record_count (Optional[int], optional): Maximum record count.  Defaults to None.
             wkid (Optional[int], optional): Spatial reference.  Defaults to None.
 
         Returns:
             Iterable[T]: Items.
         """
+        if not where_clause:
+            where_clause = "1=1"
+
         if record_count == 0:
             return
 
@@ -144,25 +148,27 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
                 yield row  # type: ignore
             else:
                 dictionary = {property: getattr(row, field) for (property, field) in self._fields.items()}
-                if hasattr(self._model, "__dataclass_fields__"):
-                    # Support for dataclasses.
+                if self._requires_init_parameters:
+                    # Support for data classes and named tuples.
                     item = self._model(*dictionary.values())
                 else:
-                    # Normal classes require the parameterless constructor.
                     item = self._model()
                     for property_name, property_value in dictionary.items():
                         setattr(item, property_name, property_value)
                 yield item
 
-    def count(self, where_clause: str = "1=1") -> int:
+    def count(self, where_clause: Optional[str] = None) -> int:
         """ Checks the number of items that match the where clause.
 
         Args:
-            where_clause (str, optional): Where clause.  Defaults to "1=1".
+            where_clause (str, optional): Where clause.  Defaults to None.
 
         Returns:
             int: Count.
         """
+        if not where_clause:
+            where_clause = "1=1"
+
         obj = self._call("query", where=where_clause, returnCountOnly=True)
         return obj.count
 
