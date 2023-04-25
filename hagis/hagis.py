@@ -280,11 +280,13 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         obj = self._call("query", where=where_clause, outFields=fields, **kwargs)
         date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
 
-        if date_fields:
-            for feature in obj.features:
+        for feature in obj.features:
+            if date_fields:
                 for key, value in feature.attributes.__dict__.items():
                     if key in date_fields and value:
                         feature.attributes.__dict__[key] = datetime.fromtimestamp(value / 1000)
+            if hasattr(feature, "geometry") and feature.geometry and hasattr(obj, "spatialReference"):
+                feature.geometry.spatialReference = obj.spatialReference.__dict__
 
         return (obj.features, obj.exceededTransferLimit if hasattr(obj, "exceededTransferLimit") else False)
 
