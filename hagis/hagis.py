@@ -333,8 +333,8 @@ class Point:  # pylint: disable=too-few-public-methods
     y: float
 
 
-class Multipoint:  # pylint: disable=too-few-public-methods
-    """ Multipoint class.
+class MultiPoint:  # pylint: disable=too-few-public-methods
+    """ MultiPoint class.
     """
     points: List[List[float]]
 
