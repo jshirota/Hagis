@@ -11,7 +11,8 @@ from requests import post
 
 T = TypeVar("T")
 
-class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
+
+class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
     """ Layer class.
 
     Args:
@@ -62,6 +63,9 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
                     if key == shape_property_name.lower():
                         self._shape_property_name = property_name
                         self._shape_property_type = property_type
+
+        self._is_arcgis_gemetry = hasattr(self._shape_property_type, "__module__")\
+            and self._shape_property_type.__module__.startswith("arcgis.geometry.")
 
         # Add custom properties that have not been handled as dynamically handled propeties.
         for property_name, field in mapping.items():
@@ -247,7 +251,10 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
             lower_property_name = key.lower()
             field = self._fields[lower_property_name]
             if lower_property_name == self._shape_property_name.lower():
-                dictionary["geometry"] = value.__dict__
+                if self._is_arcgis_gemetry:
+                    dictionary["geometry"] = loads(value.JSON)
+                else:
+                    dictionary["geometry"] = value.__dict__
             elif isinstance(value, datetime):
                 attributes[field] = int((value - datetime.utcfromtimestamp(0)).total_seconds() * 1000)
             else:
@@ -292,8 +299,11 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
         if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
             shape = row.geometry
         else:
-            shape = self._shape_property_type()
-            shape.__dict__ = row.geometry.__dict__
+            if self._is_arcgis_gemetry:
+                shape = self._shape_property_type(row.geometry.__dict__)
+            else:
+                shape = self._shape_property_type()
+                shape.__dict__ = row.geometry.__dict__
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
@@ -316,23 +326,26 @@ class Layer(Generic[T]): # pylint: disable=too-many-instance-attributes
                     yield self._map(row)
 
 
-class Point: # pylint: disable=too-few-public-methods
+class Point:  # pylint: disable=too-few-public-methods
     """ Point class.
     """
     x: float
     y: float
 
-class Multipoint: # pylint: disable=too-few-public-methods
+
+class Multipoint:  # pylint: disable=too-few-public-methods
     """ Multipoint class.
     """
     points: List[List[float]]
 
-class Polyline: # pylint: disable=too-few-public-methods
+
+class Polyline:  # pylint: disable=too-few-public-methods
     """ Polyline class.
     """
     paths: List[List[List[float]]]
 
-class Polygon: # pylint: disable=too-few-public-methods
+
+class Polygon:  # pylint: disable=too-few-public-methods
     """ Polygon class.
     """
     rings: List[List[List[float]]]
