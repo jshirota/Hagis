@@ -6,7 +6,8 @@ from itertools import chain, islice
 from json import dumps, loads
 from time import time
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar, Union
+from uuid import UUID
 from requests import post
 
 T = TypeVar("T")
@@ -117,7 +118,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         self._generate_token = lambda: token
 
     def query(self, where_clause: Optional[str] = None, record_count: Optional[int] = None, wkid: Optional[int] = None,
-              **kwargs: Any) -> Iterable[T]:
+              **kwargs: Any) -> Iterator[T]:
         """ Executes a query.
 
         Args:
@@ -126,7 +127,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             wkid (Optional[int], optional): Spatial reference.  Defaults to None.
 
         Returns:
-            Iterable[T]: Items.
+            Iterator[T]: Items.
         """
         if not where_clause:
             where_clause = "1=1"
@@ -191,7 +192,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         Returns:
             Optional[T]: Item if found (otherwise None).
         """
-        items = list(self.query(f"{self._oid_field}={oid}", **kwargs))
+        where_clause = self.generate_where_clause(oid)
+        items = list(self.query(where_clause, **kwargs))
         return items[0] if items else None
 
     def apply_edits(self,
@@ -240,6 +242,27 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             where_clause (str): Where clause use for deleting.
         """
         self._call("deleteFeatures", where=where_clause, **kwargs)
+
+    def generate_where_clause(self, *ids: Union[int, str, UUID], id_field: Optional[str] = None) -> str:
+        """ Generates a where clause from a list of Object ID, Global ID or some other identifiers.
+
+        Args:
+            id_field (Optional[str], optional): Name of the ID field. Defaults to None.
+
+        Returns:
+            str: Where clause.
+        """
+        if not ids:
+            return "(1=0)"
+
+        if isinstance(ids[0], int):
+            field_name = id_field if id_field else self._oid_field
+            id_set = set(map(str, ids))
+        else:
+            field_name = id_field if id_field else "globalid"
+            id_set = set((f"'{_id}'" for _id in ids))
+
+        return f"({field_name} IN ({','.join(id_set)}))"
 
     def _to_dict(self, item: T) -> Dict[str, Any]:
         dictionary: Dict[str, Any] = {}
@@ -309,7 +332,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
-    def _query(self, where_clause: str, fields: str, keep_querying: bool, **kwargs: Any) -> Iterable[SimpleNamespace]:
+    def _query(self, where_clause: str, fields: str, keep_querying: bool, **kwargs: Any) -> Iterator[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
