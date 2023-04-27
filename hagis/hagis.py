@@ -1,4 +1,5 @@
 """ A high availability GIS client. """
+from concurrent import futures
 from datetime import datetime
 from hashlib import md5
 from inspect import signature
@@ -117,16 +118,17 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         """
         self._generate_token = lambda: token
 
-    def query(self, where_clause: Optional[str] = None, record_count: Optional[int] = None, wkid: Optional[int] = None,
-              **kwargs: Any) -> Iterator[T]:
+    def query(self, where_clause: Optional[str] = None, record_count: Optional[int] = None,
+              wkid: Optional[int] = None, max_worker: Optional[int] = None, **kwargs: Any) -> Iterator[T]:
         """ Executes a query.
 
         Args:
             where_clause (str, optional): Where clause.  Defaults to None.
             record_count (Optional[int], optional): Maximum record count.  Defaults to None.
             wkid (Optional[int], optional): Spatial reference.  Defaults to None.
+            max_worker (Optional[int], optional): Max worker count (degree of parallelism). Defaults to None.
 
-        Returns:
+        Yields:
             Iterator[T]: Items.
         """
         if not where_clause:
@@ -145,15 +147,12 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 kwargs["returnGeometry"] = False
 
         if record_count:
-            keep_querying = True
             kwargs["resultRecordCount"] = record_count
-        else:
-            keep_querying = False
 
         if wkid:
             kwargs["outSR"] = wkid
 
-        for row in islice(self._query(where_clause, fields, keep_querying, **kwargs), record_count):
+        for row in islice(self._query(where_clause, fields, record_count, max_worker, **kwargs), record_count):
             if self._is_dynamic:
                 yield row  # type: ignore
             else:
@@ -332,7 +331,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
-    def _query(self, where_clause: str, fields: str, keep_querying: bool, **kwargs: Any) -> Iterator[SimpleNamespace]:
+    def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_worker: Optional[int],
+               **kwargs: Any) -> Iterator[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
 
@@ -341,14 +341,19 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         for row in rows:
             yield self._map(row)
 
-        if exceeded_transfer_limit and keep_querying:
+        if exceeded_transfer_limit and record_count:
+            def get_more_rows(batch: List[int]):
+                more_rows, _ = get_rows(self.generate_where_clause(*batch))
+                return more_rows
+
             size = len(rows)
-            oids = self._get_oids(where_clause)
-            for number in range(size, len(oids), size):
-                more_where_clause = f"{self._oid_field} IN ({','.join(map(str, oids[number:number+size]))})"
-                more_rows, _ = get_rows(more_where_clause)
-                for row in more_rows:
-                    yield self._map(row)
+            remaining_oids = list(islice(self._get_oids(where_clause)[size:], record_count - size))
+            remaining_batches = [remaining_oids[i: i + size] for i in range(len(remaining_oids))[::size]]
+
+            with futures.ThreadPoolExecutor(max_worker) as executor:
+                for rows in executor.map(get_more_rows, remaining_batches):
+                    for row in rows:
+                        yield self._map(row)
 
 
 class Point:  # pylint: disable=too-few-public-methods
