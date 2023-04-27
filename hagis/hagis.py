@@ -119,14 +119,14 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         self._generate_token = lambda: token
 
     def query(self, where_clause: Optional[str] = None, record_count: Optional[int] = None,
-              wkid: Optional[int] = None, max_worker: Optional[int] = None, **kwargs: Any) -> Iterator[T]:
+              wkid: Optional[int] = None, max_workers: Optional[int] = None, **kwargs: Any) -> Iterator[T]:
         """ Executes a query.
 
         Args:
             where_clause (str, optional): Where clause.  Defaults to None.
             record_count (Optional[int], optional): Maximum record count.  Defaults to None.
             wkid (Optional[int], optional): Spatial reference.  Defaults to None.
-            max_worker (Optional[int], optional): Max worker count (degree of parallelism). Defaults to None.
+            max_workers (Optional[int], optional): Max worker count (degree of parallelism). Defaults to None.
 
         Yields:
             Iterator[T]: Items.
@@ -152,7 +152,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         if wkid:
             kwargs["outSR"] = wkid
 
-        for row in islice(self._query(where_clause, fields, record_count, max_worker, **kwargs), record_count):
+        for row in islice(self._query(where_clause, fields, record_count, max_workers, **kwargs), record_count):
             if self._is_dynamic:
                 yield row  # type: ignore
             else:
@@ -331,7 +331,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
-    def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_worker: Optional[int],
+    def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_workers: Optional[int],
                **kwargs: Any) -> Iterator[SimpleNamespace]:
         def get_rows(where_clause: str):
             return self._get_rows(where_clause, fields, **kwargs)
@@ -350,7 +350,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             remaining_oids = list(islice(self._get_oids(where_clause)[size:], record_count - size))
             remaining_batches = [remaining_oids[i: i + size] for i in range(len(remaining_oids))[::size]]
 
-            with futures.ThreadPoolExecutor(max_worker) as executor:
+            with futures.ThreadPoolExecutor(max_workers) as executor:
                 for rows in executor.map(get_more_rows, remaining_batches):
                     for row in rows:
                         yield self._map(row)
