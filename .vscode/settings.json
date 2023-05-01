@@ -2,7 +2,6 @@
     "editor.renderWhitespace": "all",
     "editor.tabSize": 4,
     "python.analysis.typeCheckingMode": "strict",
-    "python.formatting.provider": "autopep8",
     "python.linting.flake8Args": [
         "--max-line-length=120"
     ],
