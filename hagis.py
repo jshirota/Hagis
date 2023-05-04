@@ -375,7 +375,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
             def __init__(self, code: str) -> None:
                 super().__init__()
-                self.visit(ast.parse(f"{code}    pass" if code.strip().endswith(":") else code))
+                line = code.strip()
+                self.visit(ast.parse(f"{line}\n    pass" if line.endswith(":") else line))
 
             def visit_Lambda(self, node: ast.Lambda) -> Any:  # pylint: disable-all
                 self.expression = node
