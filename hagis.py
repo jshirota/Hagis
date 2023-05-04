@@ -1,6 +1,6 @@
 """ A high availability GIS client. """
 import ast
-from _ast import Attribute, BoolOp, Call, Compare, Constant
+from _ast import Attribute, BoolOp, Call, Compare, Constant, Name
 from concurrent import futures
 from datetime import datetime
 from hashlib import md5
@@ -370,12 +370,14 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
     def _to_sql(self, predicate: Callable[[T], bool]) -> str:
 
         class LambdaFinder(ast.NodeVisitor):
-
-            expression: ast.Lambda
-
-            def __init__(self, code: str) -> None:
+            def __init__(self, expression: Any) -> None:
                 super().__init__()
-                line = code.strip()
+                closure = expression.__closure__
+                if closure:
+                    self.freevars = dict(zip(expression.__code__.co_freevars, [x.cell_contents for x in closure]))
+                else:
+                    self.freevars = {}
+                line = getsource(expression).strip()
                 self.visit(ast.parse(f"{line}\n    pass" if line.endswith(":") else line))
 
             def visit_Lambda(self, node: ast.Lambda) -> Any:  # pylint: disable-all
@@ -383,13 +385,15 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
             @staticmethod
             def find(expression: Any):  # pylint: disable-all
-                return LambdaFinder(getsource(expression)).expression
+                visitor = LambdaFinder(expression)
+                return visitor.expression, visitor.freevars
 
         class LambdaVisitor(ast.NodeVisitor):
 
-            def __init__(self, expression: ast.expr, fields: Dict[str, str]):
+            def __init__(self, expression: ast.expr, freevars: Dict[str, Any], fields: Dict[str, str]):
                 super().__init__()
                 self._expressions: List[Union[LambdaVisitor, str]] = []
+                self._freevars = freevars
                 self._fields = fields
                 self.visit(expression)
 
@@ -401,7 +405,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 self._expressions.append("(")
                 expressions: List[Union[LambdaVisitor, str]] = []
                 for value in node.values:
-                    expressions.append(LambdaVisitor(value, self._fields))
+                    expressions.append(LambdaVisitor(value, self._freevars, self._fields))
                     expressions.append(self._convert_op(node.op))
                 expressions.pop()
                 self._expressions.extend(expressions)
@@ -414,28 +418,37 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 attr = node.func.attr  # type: ignore
                 if attr == "startswith":
                     field_name = self._fields[node.func.value.attr]  # type: ignore
-                    self._expressions.append(f"{field_name} LIKE '{node.args[0].value}%'")  # type: ignore
+                    self._expressions.append(f"{field_name} LIKE '{self._get_value(node.args[0])}%'")
                 elif attr == "endswith":
                     field_name = self._fields[node.func.value.attr]  # type: ignore
-                    self._expressions.append(f"{field_name} LIKE '%{node.args[0].value}'")  # type: ignore
+                    self._expressions.append(f"{field_name} LIKE '%{self._get_value(node.args[0])}'")
 
             def visit_Compare(self, node: Compare) -> Any:
                 op = node.ops[0]
                 if isinstance(op, ast.In):
                     field_name = self._fields[node.comparators[0].attr]  # type: ignore
-                    self._expressions.append(f"{field_name} LIKE '%{node.left.value}%'")  # type: ignore
+                    self._expressions.append(f"{field_name} LIKE '%{self._get_value(node.left)}%'")
                 else:
-                    self._expressions.append(LambdaVisitor(node.left, self._fields))
+                    self._expressions.append(LambdaVisitor(node.left, self._freevars, self._fields))
                     self._expressions.append(self._convert_op(node.ops[0]))
-                    self._expressions.append(LambdaVisitor(node.comparators[0], self._fields))
+                    self._expressions.append(LambdaVisitor(node.comparators[0], self._freevars, self._fields))
 
             def visit_Constant(self, node: Constant) -> Any:
-                if node.value is None:
-                    self._expressions.append("NULL")
-                elif isinstance(node.value, str):
-                    self._expressions.append(f"'{node.value}'")
-                else:
-                    self._expressions.append(node.value)
+                self._expressions.append(self._get_sql_value(node))
+
+            def visit_Name(self, node: Name) -> Any:
+                self._expressions.append(self._get_sql_value(node))
+
+            def _get_sql_value(self, node: Any) -> str:
+                value = self._get_value(node)
+                if value is None:
+                    return "NULL"
+                if isinstance(value, str):
+                    return f"'{value}'"
+                return str(value)
+
+            def _get_value(self, node: Any) -> Any:
+                return self._freevars[node.id] if isinstance(node, Name) else node.value
 
             def _convert_op(self, op: Any) -> str:
                 if isinstance(op, ast.And):
@@ -466,7 +479,10 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                     text += e.to_sql() if isinstance(e, LambdaVisitor) else f" {e}"
                 return text
 
-        where_clause = LambdaVisitor(LambdaFinder.find(predicate), self._fields).to_sql().strip()
+        expression, freevars = LambdaFinder.find(predicate)
+
+        where_clause = LambdaVisitor(expression, freevars, self._fields).to_sql().strip()
+
         return where_clause
 
 
