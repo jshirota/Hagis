@@ -372,11 +372,20 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         class LambdaFinder(ast.NodeVisitor):
             def __init__(self, expression: Any) -> None:
                 super().__init__()
+
+                # Capture closure variables.
                 closure = expression.__closure__
                 if closure:
                     self.freevars = dict(zip(expression.__code__.co_freevars, [x.cell_contents for x in closure]))
                 else:
                     self.freevars = {}
+
+                # Check globals.
+                for name in expression.__code__.co_names:
+                    if name in expression.__globals__:
+                        if name not in self.freevars:
+                            self.freevars[name] = expression.__globals__[name]
+
                 line = getsource(expression).strip()
                 self.visit(ast.parse(f"{line}\n    pass" if line.endswith(":") else line))
 
@@ -445,6 +454,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                     return "NULL"
                 if isinstance(value, str):
                     return f"'{value}'"
+                if isinstance(value, datetime):
+                    return f"timestamp '{value:%Y-%m-%d %H:%M:%S}'"
                 return str(value)
 
             def _get_value(self, node: Any) -> Any:
@@ -480,7 +491,6 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 return text
 
         expression, freevars = LambdaFinder.find(predicate)
-
         where_clause = LambdaVisitor(expression, freevars, self._fields).to_sql().strip()
 
         return where_clause
