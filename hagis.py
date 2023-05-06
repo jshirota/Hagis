@@ -312,13 +312,24 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
     def _get_rows(self, where_clause: str, fields: str, **kwargs: Any) -> Tuple[List[SimpleNamespace], bool]:
         obj = self._call("query", where=where_clause, outFields=fields, **kwargs)
-        date_fields = [f.name for f in obj.fields if f.type == "esriFieldTypeDate"] if hasattr(obj, "fields") else []
+
+        date_fields: List[str] = []
+        uuid_fields: List[str] = []
+
+        if hasattr(obj, "fields"):
+            for f in obj.fields:
+                if f.type == "esriFieldTypeDate":
+                    date_fields.append(f.name)
+                elif f.type == "esriFieldTypeGlobalID" or f.type == "esriFieldTypeGUID":
+                    uuid_fields.append(f.name)
 
         for feature in obj.features:
             if date_fields:
                 for key, value in feature.attributes.__dict__.items():
                     if key in date_fields and value:
                         feature.attributes.__dict__[key] = datetime.utcfromtimestamp(value / 1000)
+                    elif key in uuid_fields and value:
+                        feature.attributes.__dict__[key] = UUID(value)
             if hasattr(feature, "geometry") and feature.geometry and hasattr(obj, "spatialReference"):
                 feature.geometry.spatialReference = obj.spatialReference.__dict__
 
@@ -386,7 +397,11 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                         self.freevars[name] = value
 
                 line = getsource(expression).strip()
-                self.visit(ast.parse(f"{line}\n    pass" if line.endswith(":") else line))
+
+                if line.endswith(":"):
+                    line = f"{line}\n    pass"
+
+                self.visit(ast.parse(line))
 
             def visit_Lambda(self, node: ast.Lambda) -> Any:  # pylint: disable-all
                 self.expression = node
