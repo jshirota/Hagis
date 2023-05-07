@@ -160,14 +160,14 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             if self._is_dynamic:
                 yield row  # type: ignore
             else:
-                dictionary = {property: getattr(row, field) for (property, field) in self._fields.items()}
                 if self._has_parameterless_constructor:
                     item = self._model()
-                    for property_name, property_value in dictionary.items():
-                        setattr(item, property_name, property_value)
+                    row_dict = {key.lower(): value for key, value in row.__dict__.items()}
+                    for property_name, field_name in self._fields.items():
+                        setattr(item, property_name, row_dict[field_name])
                 else:
                     # Support for data classes and named tuples.
-                    item = self._model(*dictionary.values())
+                    item = self._model(*row.__dict__.values())
 
                 yield item
 
@@ -340,10 +340,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         return obj.objectIds
 
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
-        attributes = {key.lower(): value for key, value in row.attributes.__dict__.items()}
-
         if not hasattr(row, "geometry"):
-            return SimpleNamespace(**attributes)
+            return row.attributes
 
         if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
             shape = row.geometry
@@ -354,7 +352,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 shape = self._shape_property_type()
                 shape.__dict__ = row.geometry.__dict__
 
-        return SimpleNamespace(**attributes, **{self._shape_property_name: shape})
+        return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
 
     def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_workers: Optional[int],
                **kwargs: Any) -> Iterator[SimpleNamespace]:
