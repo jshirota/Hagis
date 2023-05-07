@@ -340,8 +340,10 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         return obj.objectIds
 
     def _map(self, row: SimpleNamespace) -> SimpleNamespace:
+        attributes = {key.lower(): value for key, value in row.attributes.__dict__.items()}
+
         if not hasattr(row, "geometry"):
-            return row.attributes
+            return SimpleNamespace(**attributes)
 
         if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
             shape = row.geometry
@@ -352,7 +354,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 shape = self._shape_property_type()
                 shape.__dict__ = row.geometry.__dict__
 
-        return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
+        return SimpleNamespace(**attributes, **{self._shape_property_name: shape})
 
     def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_workers: Optional[int],
                **kwargs: Any) -> Iterator[SimpleNamespace]:
