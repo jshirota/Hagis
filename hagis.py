@@ -56,15 +56,13 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         for model_type in reversed(model.mro()):
             if hasattr(model_type, "__annotations__"):
                 for property_name, property_type in model_type.__annotations__.items():
-                    key = property_name.lower()
-
                     if property_name in mapping:
-                        self._fields[key] = mapping[property_name]
+                        self._fields[property_name] = mapping[property_name]
                         mapped.append(property_name)
                     else:
-                        self._fields[key] = property_name
+                        self._fields[property_name] = property_name
 
-                    if key == shape_property_name.lower():
+                    if property_name.lower() == shape_property_name.lower():
                         self._shape_property_name = property_name
                         self._shape_property_type = property_type
 
@@ -74,7 +72,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         # Add custom properties that have not been handled as dynamically handled propeties.
         for property_name, field in mapping.items():
             if property_name not in mapped:
-                self._fields[property_name.lower()] = field
+                self._fields[property_name] = field
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
@@ -146,7 +144,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             fields = "*"
         else:
             # Otherwise, request only what is used by the model.
-            fields = ",".join([f for (_, f) in self._fields.items() if f != self._shape_property_name.lower()])
+            fields = ",".join([f for f in self._fields.values() if f.lower() != self._shape_property_name.lower()])
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
@@ -162,9 +160,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             else:
                 if self._has_parameterless_constructor:
                     item = self._model()
-                    row_dict = {key.lower(): value for key, value in row.__dict__.items()}
                     for property_name, field_name in self._fields.items():
-                        setattr(item, property_name, row_dict[field_name])
+                        setattr(item, property_name, row.__dict__[field_name])
                 else:
                     # Support for data classes and named tuples.
                     item = self._model(*row.__dict__.values())
@@ -282,9 +279,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
-            lower_property_name = key.lower()
-            field = self._fields[lower_property_name]
-            if lower_property_name == self._shape_property_name.lower():
+            field = self._fields[key]
+            if key.lower() == self._shape_property_name.lower():
                 if self._is_arcgis_gemetry:
                     dictionary["geometry"] = loads(value.JSON)
                 else:
