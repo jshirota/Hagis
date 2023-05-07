@@ -160,8 +160,9 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             else:
                 if self._has_parameterless_constructor:
                     item = self._model()
+                    row_dict = {key.lower(): value for key, value in row.__dict__.items()}
                     for property_name, field_name in self._fields.items():
-                        setattr(item, property_name, row.__dict__[field_name])
+                        setattr(item, property_name, row_dict[field_name.lower()])
                 else:
                     # Support for data classes and named tuples.
                     item = self._model(*row.__dict__.values())
