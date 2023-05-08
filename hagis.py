@@ -3,6 +3,7 @@ import ast
 from _ast import Attribute, BoolOp, Call, Compare, Constant, Name
 from concurrent import futures
 from datetime import datetime
+from enum import Enum
 from hashlib import md5
 from inspect import getsource, signature
 from itertools import chain, islice
@@ -38,7 +39,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         self._shape_property_name = shape_property_name
         self._shape_property_type = None
         self._unknown_shape_types = [Any, object, SimpleNamespace]
-        self._fields: Dict[str, str] = {}
+        self._property_name_to_lower_field: Dict[str, str] = {}
+        self._lower_field_to_property_name_type: Dict[str, Tuple[str, type]] = {}
         self._generate_token: Callable[[], str] = lambda: ""
 
         self._has_parameterless_constructor = len(set(chain(
@@ -50,29 +52,32 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         if self._is_dynamic:
             return
 
-        # List of custom mapping properties that have been handled.
-        mapped: List[str] = []
+        # Add custom properties that have not been handled as dynamically handled propeties.
+        for property_name, field in mapping.items():
+            self._property_name_to_lower_field[property_name] = field
 
         for model_type in reversed(model.mro()):
             if hasattr(model_type, "__annotations__"):
                 for property_name, property_type in model_type.__annotations__.items():
+                    # If Optional, get the atcual type via the argument.
+                    if hasattr(property_type, "__origin__"):
+                        property_type = next(filter(lambda a: not isinstance(None, a), property_type.__args__))
+
                     if property_name in mapping:
-                        self._fields[property_name] = mapping[property_name]
-                        mapped.append(property_name)
+                        lower_field = mapping[property_name].lower()
                     else:
-                        self._fields[property_name] = property_name
+                        lower_field = property_name.lower()
+
+                    self._property_name_to_lower_field[property_name] = lower_field
 
                     if property_name.lower() == shape_property_name.lower():
                         self._shape_property_name = property_name
                         self._shape_property_type = property_type
 
+                    self._lower_field_to_property_name_type[lower_field] = property_name, property_type
+
         self._is_arcgis_gemetry = hasattr(self._shape_property_type, "__module__")\
             and self._shape_property_type.__module__.startswith("arcgis.geometry.")
-
-        # Add custom properties that have not been handled as dynamically handled propeties.
-        for property_name, field in mapping.items():
-            if property_name not in mapped:
-                self._fields[property_name] = field
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
@@ -144,7 +149,8 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             fields = "*"
         else:
             # Otherwise, request only what is used by the model.
-            fields = ",".join([f for f in self._fields.values() if f.lower() != self._shape_property_name.lower()])
+            fields = ",".join([f for f in self._property_name_to_lower_field.values()
+                               if f.lower() != self._shape_property_name.lower()])
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
@@ -161,7 +167,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                 if self._has_parameterless_constructor:
                     item = self._model()
                     row_dict = {key.lower(): value for key, value in row.__dict__.items()}
-                    for property_name, field_name in self._fields.items():
+                    for property_name, field_name in self._property_name_to_lower_field.items():
                         setattr(item, property_name, row_dict[field_name.lower()])
                 else:
                     # Support for data classes and named tuples.
@@ -213,8 +219,12 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         Returns:
             SimpleNamespace: Edit result object.
         """
-        adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds])
-        updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates])
+        def default(value: Any):
+            if isinstance(value, Enum):
+                return value.value
+
+        adds_json = "" if adds is None else dumps([self._to_dict(x) for x in adds], default=default)
+        updates_json = "" if updates is None else dumps([self._to_dict(x) for x in updates], default=default)
         deletes_json = "" if deletes is None else dumps([x for x in deletes])
         return self._call("applyEdits", adds=adds_json, updates=updates_json, deletes=deletes_json, **kwargs)
 
@@ -280,7 +290,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         dictionary["attributes"] = attributes
 
         for key, value in item.__dict__.items():
-            field = self._fields[key]
+            field = self._property_name_to_lower_field[key]
             if key.lower() == self._shape_property_name.lower():
                 if self._is_arcgis_gemetry:
                     dictionary["geometry"] = loads(value.JSON)
@@ -321,12 +331,20 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                     uuid_fields.append(f.name)
 
         for feature in obj.features:
-            if date_fields:
-                for key, value in feature.attributes.__dict__.items():
-                    if key in date_fields and value:
-                        feature.attributes.__dict__[key] = datetime.utcfromtimestamp(value / 1000)
-                    elif key in uuid_fields and value:
-                        feature.attributes.__dict__[key] = UUID(value)
+            for key, value in feature.attributes.__dict__.items():
+                if value is None:
+                    continue
+                if key in date_fields:
+                    feature.attributes.__dict__[key] = datetime.utcfromtimestamp(value / 1000)
+                elif key in uuid_fields:
+                    feature.attributes.__dict__[key] = UUID(value)
+                elif not self._is_dynamic:
+                    lower_field: str = key.lower()
+                    if lower_field in self._lower_field_to_property_name_type:
+                        _, property_type = self._lower_field_to_property_name_type[lower_field]
+                        if issubclass(property_type, Enum):
+                            feature.attributes.__dict__[key] = property_type(value)
+
             if hasattr(feature, "geometry") and feature.geometry and hasattr(obj, "spatialReference"):
                 feature.geometry.spatialReference = obj.spatialReference.__dict__
 
@@ -507,7 +525,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         expression, freevars = LambdaFinder.find(predicate)
 
         # Generate a where clause.
-        where_clause = LambdaVisitor(expression, freevars, self._fields).to_sql().strip()
+        where_clause = LambdaVisitor(expression, freevars, self._property_name_to_lower_field).to_sql().strip()
 
         return where_clause
 
