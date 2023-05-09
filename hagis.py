@@ -12,7 +12,8 @@ from time import time
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Generic, Iterator, List, Optional, Tuple, Type, TypeVar, Union
 from uuid import UUID
-from requests import post
+from requests import Session
+from requests.adapters import HTTPAdapter, Retry
 
 T = TypeVar("T")
 
@@ -305,7 +306,10 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
 
     def _post(self, url: str, **kwargs: Any) -> SimpleNamespace:
         kwargs["f"] = "json"
-        response = post(url, data=kwargs, timeout=10)
+
+        session = Session()
+        session.mount("https://", HTTPAdapter(max_retries=Retry(total=7, backoff_factor=0.1)))
+        response = session.post(url, data=kwargs, timeout=10)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
         if hasattr(obj, "error"):
@@ -342,7 +346,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
                     lower_field: str = key.lower()
                     if lower_field in self._lower_field_to_property_name_type:
                         _, property_type = self._lower_field_to_property_name_type[lower_field]
-                        if issubclass(property_type, Enum):
+                        if issubclass(property_type, Enum) and value in property_type._value2member_map_:
                             feature.attributes.__dict__[key] = property_type(value)
 
             if hasattr(feature, "geometry") and feature.geometry and hasattr(obj, "spatialReference"):
