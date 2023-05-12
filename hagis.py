@@ -18,7 +18,7 @@ from requests.adapters import HTTPAdapter, Retry
 T = TypeVar("T")
 
 
-class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
+class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attributes
     """ Layer class.
 
     Args:
@@ -36,6 +36,7 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
         """
         self._layer_url = layer_url
         self._model = model
+        self._iterator = None
         self._oid_field = oid_field
         self._shape_property_name = shape_property_name
         self._shape_property_type = None
@@ -283,6 +284,15 @@ class Layer(Generic[T]):  # pylint: disable=too-many-instance-attributes
             id_set = set((f"'{_id}'" for _id in ids))
 
         return f"({field_name} IN ({','.join(id_set)}))"
+
+    def __iter__(self) -> Iterator[T]:
+        self._iterator = self.query()
+        return self
+
+    def __next__(self) -> T:
+        if not self._iterator:
+            self._iterator = self.query()
+        return self._iterator.__next__()
 
     def _to_dict(self, item: T) -> Dict[str, Any]:
         dictionary: Dict[str, Any] = {}
