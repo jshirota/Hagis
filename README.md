@@ -17,6 +17,8 @@ for city in layer.query():
     print(city.areaname, city.pop2000, city.shape.x, city.shape.y)
 ```
 
-Provides [haggis typing](https://en.wikipedia.org/wiki/Wild_haggis), which is an advanced form of duck typing except we don't even know if the animal in question actually exists.
+Provides [haggis typing](https://en.wikipedia.org/wiki/Wild_haggis), which is an advanced form of duck typing (except it's not clear if the animal in question actually exists).
+
+[![Haggis](https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Haggis_scoticus.jpg/300px-Haggis_scoticus.jpg)](https://en.wikipedia.org/wiki/Wild_haggis)
 
 [More examples](https://github.com/jshirota/Hagis/blob/main/demo.ipynb)
