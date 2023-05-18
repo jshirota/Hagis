@@ -78,8 +78,14 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
 
                     self._lower_field_to_property_name_type[lower_field] = property_name, property_type
 
-        self._is_arcgis_gemetry = hasattr(self._shape_property_type, "__module__")\
-            and self._shape_property_type.__module__.startswith("arcgis.geometry.")
+        self.geometry_module = GeometryModule.none
+
+        if hasattr(self._shape_property_type, "__module__"):
+            module = self._shape_property_type.__module__
+            if module.startswith("arcgis.geometry."):
+                self.geometry_module = GeometryModule.arcgis
+            elif module.startswith("shapely.geometry."):
+                self.geometry_module = GeometryModule.shapely
 
     _token_cache: Dict[Tuple[str, str], Tuple[str, int]] = {}
 
@@ -303,8 +309,10 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         for key, value in item.__dict__.items():
             field = self._property_name_to_lower_field[key]
             if key.lower() == self._shape_property_name.lower():
-                if self._is_arcgis_gemetry:
+                if self.geometry_module == GeometryModule.arcgis:
                     dictionary["geometry"] = loads(value.JSON)
+                elif self.geometry_module == GeometryModule.shapely:
+                    dictionary["geometry"] = self._from_shapely(value)
                 else:
                     dictionary["geometry"] = value.__dict__
             elif isinstance(value, datetime):
@@ -375,13 +383,72 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         if self._shape_property_type is None or self._shape_property_type in self._unknown_shape_types:
             shape = row.geometry
         else:
-            if self._is_arcgis_gemetry:
+            if self.geometry_module == GeometryModule.arcgis:
                 shape = self._shape_property_type(row.geometry.__dict__)
+            elif self.geometry_module == GeometryModule.shapely:
+                shape = self._to_shapely(row.geometry.__dict__, self._shape_property_type)
             else:
                 shape = self._shape_property_type()
                 shape.__dict__ = row.geometry.__dict__
 
         return SimpleNamespace(**row.attributes.__dict__, **{self._shape_property_name: shape})
+
+    @staticmethod
+    def _from_shapely(shape: Any) -> Dict[str, Any]:
+        if shape.type == "Point":
+            if shape.has_z:
+                return {"x": shape.x, "y": shape.y, "z": shape.z}
+            else:
+                return {"x": shape.x, "y": shape.y}
+
+        if shape.type == "MultiPoint":
+            return {"points": [[p.x, p.y, p.z] if p.has_z else [p.x, p.y] for p in shape.geoms]}
+
+        if shape.type == "MultiLineString":
+            return {"paths": [[list(p) for p in path.coords] for path in shape.geoms]}
+
+        if shape.type == "MultiPolygon":
+            rings: List[List[List[float]]] = []
+            for polygon in shape.geoms:
+                for ring in [polygon.exterior] + list(polygon.interiors):
+                    rings.append([list(p) for p in ring.coords])
+            return {"rings": rings}
+
+        raise TypeError("Unsupported shape type.")
+
+    @staticmethod
+    def _to_shapely(d: Dict[str, Any], shape_type: Any) -> Any:
+        if "x" in d and "y" in d:
+            if "z" in d:
+                return shape_type(d["x"], d["y"], d["z"])
+            else:
+                return shape_type(d["x"], d["y"])
+
+        if "points" in d:
+            return shape_type(d["points"])
+
+        if "paths" in d:
+            return shape_type(d["paths"])
+
+        if "rings" in d:
+            polygons: List[Any] = []
+            shell = d["rings"][0]
+            holes: List[Any] = []
+            is_clockwise = Layer._is_clockwise(shell)
+            for ring in d["rings"][1:]:
+                if Layer._is_clockwise(ring) == is_clockwise:
+                    polygons.append([shell, holes])
+                    shell, holes = ring, []
+                else:
+                    holes.append(ring)
+            polygons.append([shell, holes])
+            return shape_type(polygons)
+
+        raise TypeError("Unsupported shape type.")
+
+    @staticmethod
+    def _is_clockwise(ring: List[List[float]]) -> bool:
+        return sum((ring[i + 1][0] - ring[i][0]) * (ring[i + 1][1] + ring[i][1]) for i in range(len(ring) - 1)) > 0
 
     def _query(self, where_clause: str, fields: str, record_count: Optional[int], max_workers: Optional[int],
                **kwargs: Any) -> Iterator[SimpleNamespace]:
@@ -544,11 +611,18 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         return where_clause
 
 
+class GeometryModule(Enum):
+    none = 0
+    arcgis = 1
+    shapely = 2
+
+
 class Point:  # pylint: disable=too-few-public-methods
     """ Point class.
     """
     x: float
     y: float
+    z: Optional[float] = None
 
 
 class MultiPoint:  # pylint: disable=too-few-public-methods
