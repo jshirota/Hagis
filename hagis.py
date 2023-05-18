@@ -25,14 +25,14 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         Generic (T): Type argument.
     """
     def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace,
-                 oid_field: str = "objectid", shape_property_name: str = "shape", **mapping: str) -> None:
+                 oid_field: str = "objectid", shape_property_name: str = "geometry", **mapping: str) -> None:
         """ Creates a new instance of the Layer class.
 
         Args:
             layer_url (str): Layer url (e.g. .../FeatureServer/0).
             model (Type[T], optional): Model to map to.  Defaults to SimpleNamespace.
             oid_field (str, optional): Name of the Object ID field.  Defaults to "objectid".
-            shape_property_name (str, optional): Name of the shape property.  Defaults to "shape".
+            shape_property_name (str, optional): Name of the geometry property.  Defaults to "geometry".
         """
         self._layer_url = layer_url
         self._model = model
@@ -176,7 +176,10 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
                     item = self._model()
                     row_dict = {key.lower(): value for key, value in row.__dict__.items()}
                     for property_name, field_name in self._property_name_to_lower_field.items():
-                        setattr(item, property_name, row_dict[field_name.lower()])
+                        if field_name.lower() in row_dict:
+                            setattr(item, property_name, row_dict[field_name.lower()])
+                        else:
+                            setattr(item, property_name, None)
                 else:
                     # Support for data classes and named tuples.
                     item = self._model(*row.__dict__.values())
