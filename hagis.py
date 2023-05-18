@@ -172,17 +172,21 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
             if self._is_dynamic:
                 yield row  # type: ignore
             else:
+                row_dict = {key.lower(): value for key, value in row.__dict__.items()}
+                property_dict: Dict[str, Any] = {}
+
+                for property_name, field_name in self._property_name_to_lower_field.items():
+                    if field_name in row_dict:
+                        property_dict[property_name] = row_dict[field_name]
+                    else:
+                        property_dict[property_name] = None
+
                 if self._has_parameterless_constructor:
                     item = self._model()
-                    row_dict = {key.lower(): value for key, value in row.__dict__.items()}
-                    for property_name, field_name in self._property_name_to_lower_field.items():
-                        if field_name in row_dict:
-                            setattr(item, property_name, row_dict[field_name])
-                        else:
-                            setattr(item, property_name, None)
+                    item.__dict__.update(property_dict)
                 else:
                     # Support for data classes and named tuples.
-                    item = self._model(*row.__dict__.values())
+                    item = self._model(*property_dict.values())
 
                 yield item
 
