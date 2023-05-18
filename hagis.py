@@ -72,7 +72,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
 
                     self._property_name_to_lower_field[property_name] = lower_field
 
-                    if property_name.lower() == shape_property_name.lower():
+                    if property_name == shape_property_name:
                         self._shape_property_name = property_name
                         self._shape_property_type = property_type
 
@@ -158,7 +158,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         else:
             # Otherwise, request only what is used by the model.
             fields = ",".join([f for f in self._property_name_to_lower_field.values()
-                               if f.lower() != self._shape_property_name.lower()])
+                               if f != self._shape_property_name])
             if not self._shape_property_name:
                 kwargs["returnGeometry"] = False
 
@@ -176,8 +176,8 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
                     item = self._model()
                     row_dict = {key.lower(): value for key, value in row.__dict__.items()}
                     for property_name, field_name in self._property_name_to_lower_field.items():
-                        if field_name.lower() in row_dict:
-                            setattr(item, property_name, row_dict[field_name.lower()])
+                        if field_name in row_dict:
+                            setattr(item, property_name, row_dict[field_name])
                         else:
                             setattr(item, property_name, None)
                 else:
@@ -311,7 +311,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
 
         for key, value in item.__dict__.items():
             field = self._property_name_to_lower_field[key]
-            if key.lower() == self._shape_property_name.lower():
+            if key == self._shape_property_name:
                 if self.geometry_module == GeometryModule.arcgis:
                     dictionary["geometry"] = loads(value.JSON)
                 elif self.geometry_module == GeometryModule.shapely:
@@ -422,18 +422,26 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
     @staticmethod
     def _to_shapely(d: Dict[str, Any], shape_type: Any) -> Any:
         if "x" in d and "y" in d:
+            if shape_type.__name__ != "Point":
+                raise TypeError("Point can only be mapped to shapely.Point.")
             if "z" in d:
                 return shape_type(d["x"], d["y"], d["z"])
             else:
                 return shape_type(d["x"], d["y"])
 
         if "points" in d:
+            if shape_type.__name__ != "MultiPoint":
+                raise TypeError("MultiPoint can only be mapped to shapely.MultiPoint.")
             return shape_type(d["points"])
 
         if "paths" in d:
+            if shape_type.__name__ != "MultiLineString":
+                raise TypeError("Polyline can only be mapped to shapely.MultiLineString.")
             return shape_type(d["paths"])
 
         if "rings" in d:
+            if shape_type.__name__ != "MultiPolygon":
+                raise TypeError("Polygon can only be mapped to shapely.MultiPolygon.")
             polygons: List[Any] = []
             shell = d["rings"][0]
             holes: List[Any] = []
