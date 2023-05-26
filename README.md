@@ -2,6 +2,10 @@
 
 A GIS client
 
+```
+pip install hagis
+```
+
 ```python
 from hagis import Layer, Point
 
