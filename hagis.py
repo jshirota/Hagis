@@ -447,16 +447,17 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
             if shape_type.__name__ != "MultiPolygon":
                 raise TypeError("Polygon can only be mapped to shapely.MultiPolygon.")
             polygons: List[Any] = []
-            shell = d["rings"][0]
-            holes: List[Any] = []
-            is_clockwise = Layer._is_clockwise(shell)
-            for ring in d["rings"][1:]:
-                if Layer._is_clockwise(ring) == is_clockwise:
-                    polygons.append([shell, holes])
-                    shell, holes = ring, []
-                else:
-                    holes.append(ring)
-            polygons.append([shell, holes])
+            if d["rings"]:
+                shell = d["rings"][0]
+                holes: List[Any] = []
+                is_clockwise = Layer._is_clockwise(shell)
+                for ring in d["rings"][1:]:
+                    if Layer._is_clockwise(ring) == is_clockwise:
+                        polygons.append([shell, holes])
+                        shell, holes = ring, []
+                    else:
+                        holes.append(ring)
+                polygons.append([shell, holes])
             return shape_type(polygons)
 
         raise TypeError("Unsupported shape type.")
