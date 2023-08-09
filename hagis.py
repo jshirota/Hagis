@@ -207,11 +207,11 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         obj = self._call("query", where=where_clause, returnCountOnly=True)
         return obj.count
 
-    def find(self, oid: int, **kwargs: Any) -> Optional[T]:
+    def find(self, oid: Union[int, str, UUID], **kwargs: Any) -> Optional[T]:
         """ Finds the item by Object ID.
 
         Args:
-            oid (int): Object ID.
+            oid (Union[int, str, UUID]): Object ID or Global ID.
 
         Returns:
             Optional[T]: Item if found (otherwise None).
