@@ -298,10 +298,6 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
 
         return f"({field_name} IN ({','.join(id_set)}))"
 
-    def __iter__(self) -> Iterator[T]:
-        self._iterator = self.query()
-        return self
-
     def __next__(self) -> T:
         if not self._iterator:
             self._iterator = self.query()
