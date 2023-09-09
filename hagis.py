@@ -25,7 +25,8 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         Generic (T): Type argument.
     """
     def __init__(self, layer_url: str, model: Type[T] = SimpleNamespace,
-                 oid_field: str = "objectid", shape_property_name: str = "geometry", **mapping: str) -> None:
+                 oid_field: str = "objectid", shape_property_name: str = "geometry", verify_ssl_certificates: bool = True,
+                 **mapping: str) -> None:
         """ Creates a new instance of the Layer class.
 
         Args:
@@ -33,6 +34,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
             model (Type[T], optional): Model to map to.  Defaults to SimpleNamespace.
             oid_field (str, optional): Name of the Object ID field.  Defaults to "objectid".
             shape_property_name (str, optional): Name of the geometry property.  Defaults to "geometry".
+            verify_ssl_certificates (bool, optional): Verify SSL certificates.  Defaults to True.
         """
         self._layer_url = layer_url
         self._model = model
@@ -40,6 +42,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
         self._oid_field = oid_field
         self._shape_property_name = shape_property_name
         self._shape_property_type = None
+        self.verify_ssl_certificates = verify_ssl_certificates
         self._unknown_shape_types = [Any, object, SimpleNamespace]
         self._property_name_to_lower_field: Dict[str, str] = {}
         self._lower_field_to_property_name_type: Dict[str, Tuple[str, type]] = {}
@@ -330,7 +333,7 @@ class Layer(Generic[T], Iterator[T]):  # pylint: disable=too-many-instance-attri
 
         session = Session()
         session.mount("https://", HTTPAdapter(max_retries=Retry(total=7, backoff_factor=0.1)))
-        response = session.post(url, data=kwargs, timeout=10)
+        response = session.post(url, data=kwargs, timeout=10, verify=self.verify_ssl_certificates)
         obj = loads(response.text, object_hook=lambda x: SimpleNamespace(**x))
 
         if hasattr(obj, "error"):
